@@ -29,7 +29,7 @@ jobs:
       - name: Archive (unsigned)
         run: |
           set -euo pipefail
-          WORKSPACE=$(ls ios/*.xcworkspace | head -n1)
+          WORKSPACE=$(ls -d ios/*.xcworkspace | head -n1)
           SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list \
             | awk '/Schemes:/{flag=1; next} /^$/{flag=0} flag' \
             | sed -n '1p' | xargs)
