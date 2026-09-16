@@ -1,17 +1,22 @@
 {
   "expo": {
-    "name": "Calendar-ios",
-    "slug": "Calendar-ios",
+    "name": "Datebook",
+    "slug": "datebook-ios",
     "version": "1.0.0",
+    "scheme": "datebook",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
+    "backgroundColor": "#07070a",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false,
+      "bundleIdentifier": "com.sarveshjagtap.datebook",
+      "buildNumber": "1"
     },
     "android": {
+      "package": "com.sarveshjagtap.datebook",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#07070a",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -20,6 +25,19 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-web-browser",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#07070a"
+        }
+      ],
+      "expo-status-bar"
+    ]
   }
 }

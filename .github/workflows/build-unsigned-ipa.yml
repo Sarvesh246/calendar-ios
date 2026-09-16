@@ -1,0 +1,64 @@
+name: Build unsigned iOS .ipa
+
+# Manual only: run from the Actions tab whenever the native shell changes
+# (icon, splash, App.tsx, app.json). Ordinary Datebook updates don't need
+# this — the app loads the live site, so a Vercel deploy is enough.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Install CocoaPods
+        run: gem install cocoapods --no-document
+
+      - name: Generate the native iOS project
+        run: npx expo prebuild --platform ios
+
+      - name: Archive (unsigned)
+        run: |
+          set -euo pipefail
+          WORKSPACE=$(ls ios/*.xcworkspace | head -n1)
+          SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list \
+            | awk '/Schemes:/{flag=1; next} /^$/{flag=0} flag' \
+            | sed -n '1p' | xargs)
+          echo "Workspace: $WORKSPACE"
+          echo "Scheme: $SCHEME"
+          xcodebuild archive \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath "$PWD/build/App.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            DEVELOPMENT_TEAM=""
+
+      - name: Package as .ipa
+        run: |
+          set -euo pipefail
+          mkdir -p build/Payload
+          cp -r build/App.xcarchive/Products/Applications/*.app build/Payload/
+          cd build
+          zip -qr Datebook-unsigned.ipa Payload
+          ls -la Datebook-unsigned.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Datebook-unsigned-ipa
+          path: build/Datebook-unsigned.ipa
+          retention-days: 14
