@@ -1,6 +1,6 @@
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useRef, useState } from "react";
-import { BackHandler, Linking, Platform, SafeAreaView, StyleSheet } from "react-native";
+import { BackHandler, Linking, Platform, StyleSheet, View } from "react-native";
 import WebView, { type WebViewNavigation } from "react-native-webview";
 import type { ShouldStartLoadRequest } from "react-native-webview/lib/WebViewTypes";
 import * as WebBrowser from "expo-web-browser";
@@ -69,7 +69,7 @@ export default function App() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <StatusBar style="light" />
       <WebView
         ref={webviewRef}
@@ -85,7 +85,7 @@ export default function App() {
         domStorageEnabled
         decelerationRate="normal"
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
