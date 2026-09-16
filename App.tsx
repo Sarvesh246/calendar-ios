@@ -9,6 +9,12 @@ WebBrowser.maybeCompleteAuthSession();
 
 const APP_ORIGIN = "https://datebookcalendar.vercel.app";
 const OAUTH_RETURN_SCHEME = "datebook://auth-callback";
+// Explicit, verifiable marker the web app checks via navigator.userAgent to
+// know it's running inside this wrapper (used to pick the OAuth redirect
+// target). More reliable than relying on react-native-webview's auto-injected
+// window.ReactNativeWebView bridge object, which wasn't consistently truthy
+// at the moment the sign-in handler ran.
+const USER_AGENT_MARKER = "DatebookNativeApp";
 // signInWithOAuth first navigates to Supabase's own authorize endpoint
 // (which then 302s to Google) — that first hop has to be caught here, not
 // just accounts.google.com, or it falls through to the generic external-link
@@ -80,6 +86,7 @@ export default function App() {
         setSupportMultipleWindows={false}
         allowsBackForwardNavigationGestures
         sharedCookiesEnabled
+        applicationNameForUserAgent={USER_AGENT_MARKER}
         // Datebook is local-first (Zustand + localStorage); this keeps that
         // storage in the app's own container across launches and resigns.
         domStorageEnabled
