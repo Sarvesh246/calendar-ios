@@ -9,10 +9,15 @@ WebBrowser.maybeCompleteAuthSession();
 
 const APP_ORIGIN = "https://datebookcalendar.vercel.app";
 const OAUTH_RETURN_SCHEME = "datebook://auth-callback";
-// Google refuses to render its sign-in page inside an embedded WebView
-// ("disallowed_useragent"), so any navigation toward it is handed off to
-// the system browser (ASWebAuthenticationSession) instead of loading here.
-const OAUTH_HOSTS = ["accounts.google.com"];
+// signInWithOAuth first navigates to Supabase's own authorize endpoint
+// (which then 302s to Google) — that first hop has to be caught here, not
+// just accounts.google.com, or it falls through to the generic external-link
+// branch and opens real Safari instead of the in-app auth sheet. Google also
+// refuses to render its sign-in page inside an embedded WebView at all
+// ("disallowed_useragent"), so both hops route through the system browser.
+function isOAuthKickoff(url: string) {
+  return url.includes("/auth/v1/authorize") || url.includes("accounts.google.com");
+}
 
 export default function App() {
   const webviewRef = useRef<WebView>(null);
@@ -36,7 +41,7 @@ export default function App() {
         return true;
       }
 
-      if (OAUTH_HOSTS.some((host) => url.includes(host))) {
+      if (isOAuthKickoff(url)) {
         void runOAuthInSystemBrowser(url);
         return false;
       }
