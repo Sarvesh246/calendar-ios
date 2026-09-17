@@ -14,7 +14,12 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Matches the npm major version (11.x, bundled with Node 24) that
+          # package-lock.json is generated with locally — `npm ci` validates
+          # the lockfile strictly enough that Node 20's older bundled npm
+          # rejected it ("Missing: typescript@5.9.3 from lock file") even
+          # though `npm install`/`npm ci` both succeed clean locally.
+          node-version: 24
           cache: npm
 
       - name: Install JS dependencies
