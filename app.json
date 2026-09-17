@@ -11,7 +11,10 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.sarveshjagtap.datebook",
-      "buildNumber": "1"
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "Datebook uses Face ID to keep your calendar locked when you're not using it."
+      }
     },
     "android": {
       "package": "com.sarveshjagtap.datebook",
@@ -28,6 +31,13 @@
     },
     "plugins": [
       "expo-web-browser",
+      "expo-quick-actions",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Datebook uses Face ID to keep your calendar locked when you're not using it."
+        }
+      ],
       [
         "expo-splash-screen",
         {
