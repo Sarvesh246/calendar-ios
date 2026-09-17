@@ -1,9 +1,13 @@
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useRef, useState } from "react";
-import { BackHandler, Linking, Platform, StyleSheet, View } from "react-native";
-import WebView, { type WebViewNavigation } from "react-native-webview";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AppState, BackHandler, Linking, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import WebView, { type WebViewMessageEvent, type WebViewNavigation } from "react-native-webview";
 import type { ShouldStartLoadRequest } from "react-native-webview/lib/WebViewTypes";
 import * as WebBrowser from "expo-web-browser";
+import * as Haptics from "expo-haptics";
+import * as QuickActions from "expo-quick-actions";
+import * as LocalAuthentication from "expo-local-authentication";
+import * as SecureStore from "expo-secure-store";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -25,10 +29,156 @@ function isOAuthKickoff(url: string) {
   return url.includes("/auth/v1/authorize") || url.includes("accounts.google.com");
 }
 
+type AppLockState = { enabled: boolean; requireAfterMinutes: number };
+const DEFAULT_APP_LOCK: AppLockState = { enabled: false, requireAfterMinutes: 5 };
+const APP_LOCK_KEY = "datebook.appLock";
+
+async function readAppLock(): Promise<AppLockState> {
+  try {
+    const raw = await SecureStore.getItemAsync(APP_LOCK_KEY);
+    if (!raw) return DEFAULT_APP_LOCK;
+    return { ...DEFAULT_APP_LOCK, ...JSON.parse(raw) };
+  } catch {
+    return DEFAULT_APP_LOCK;
+  }
+}
+
+async function writeAppLock(state: AppLockState) {
+  try {
+    await SecureStore.setItemAsync(APP_LOCK_KEY, JSON.stringify(state));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Where each Home Screen Quick Action deep-links; `intent` is consumed once by AppShell. */
+function quickActionTarget(id: string) {
+  if (id === "compose") return `${APP_ORIGIN}/today?intent=compose`;
+  if (id === "focus") return `${APP_ORIGIN}/today?intent=focus`;
+  return `${APP_ORIGIN}/today`;
+}
+
 export default function App() {
   const webviewRef = useRef<WebView>(null);
   const [uri, setUri] = useState(APP_ORIGIN);
   const canGoBack = useRef(false);
+
+  // App Lock: native is the source of truth (it must gate content before any
+  // web JS runs), the Settings toggle on the web side is a remote control for
+  // it over the bridge. `lockReady` blocks the WebView entirely until the
+  // stored state is read, so locked content never flashes on cold launch.
+  const appLock = useRef<AppLockState>(DEFAULT_APP_LOCK);
+  const [lockReady, setLockReady] = useState(false);
+  const [locked, setLocked] = useState(false);
+  const [authenticating, setAuthenticating] = useState(false);
+  const backgroundedAt = useRef<number | null>(null);
+
+  useEffect(() => {
+    void readAppLock().then((state) => {
+      appLock.current = state;
+      setLocked(state.enabled);
+      setLockReady(true);
+    });
+  }, []);
+
+  const tryUnlock = useCallback(async () => {
+    setAuthenticating(true);
+    try {
+      const enrolled = await LocalAuthentication.isEnrolledAsync();
+      if (!enrolled) {
+        setLocked(false);
+        return;
+      }
+      const result = await LocalAuthentication.authenticateAsync({
+        promptMessage: "Unlock Datebook",
+        cancelLabel: "Cancel",
+      });
+      if (result.success) setLocked(false);
+    } finally {
+      setAuthenticating(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (lockReady && locked && !authenticating) void tryUnlock();
+  }, [lockReady, locked, authenticating, tryUnlock]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (next) => {
+      if (next === "background" || next === "inactive") {
+        backgroundedAt.current = Date.now();
+        return;
+      }
+      if (next !== "active") return;
+      const state = appLock.current;
+      const since = backgroundedAt.current;
+      backgroundedAt.current = null;
+      // `since === null` means this "active" is the cold-launch transition,
+      // already handled by the readAppLock effect above.
+      if (!state.enabled || since === null) return;
+      // -1 means "only when the app was fully closed" — backgrounding alone
+      // never re-locks it.
+      if (state.requireAfterMinutes === -1) return;
+      const elapsedMinutes = (Date.now() - since) / 60000;
+      if (elapsedMinutes >= state.requireAfterMinutes) setLocked(true);
+    });
+    return () => sub.remove();
+  }, []);
+
+  // Home Screen Quick Actions — static entries, resolved on cold launch
+  // (QuickActions.initial) and while the app is already running (addListener).
+  useEffect(() => {
+    QuickActions.setItems([
+      { id: "compose", title: "Quick add", icon: "compose" },
+      { id: "today", title: "Today", icon: "date" },
+      { id: "focus", title: "Focus", icon: "time" },
+    ]);
+    if (QuickActions.initial) setUri(quickActionTarget(QuickActions.initial.id));
+    const sub = QuickActions.addListener((action) => setUri(quickActionTarget(action.id)));
+    return () => sub.remove();
+  }, []);
+
+  const pushBridge = useCallback((type: string, payload: unknown) => {
+    const script = `window.__datebookBridge && window.__datebookBridge.dispatch(${JSON.stringify({ type, payload })}); true;`;
+    webviewRef.current?.injectJavaScript(script);
+  }, []);
+
+  // Messages posted from lib/native-bridge.ts on the web side.
+  const onMessage = useCallback(
+    (event: WebViewMessageEvent) => {
+      let message: { type: string; payload?: Record<string, unknown> };
+      try {
+        message = JSON.parse(event.nativeEvent.data);
+      } catch {
+        return;
+      }
+
+      if (message.type === "haptic") {
+        const kind = message.payload?.kind;
+        if (kind === "success") void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        else if (kind === "warn") void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        else if (kind === "selection") void Haptics.selectionAsync();
+        else void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        return;
+      }
+
+      if (message.type === "getAppLock") {
+        pushBridge("appLockState", appLock.current);
+        return;
+      }
+
+      if (message.type === "setAppLock") {
+        const next: AppLockState = {
+          enabled: Boolean(message.payload?.enabled),
+          requireAfterMinutes: Number(message.payload?.requireAfterMinutes ?? 0),
+        };
+        appLock.current = next;
+        void writeAppLock(next);
+        return;
+      }
+    },
+    [pushBridge]
+  );
 
   const runOAuthInSystemBrowser = useCallback(async (authUrl: string) => {
     const result = await WebBrowser.openAuthSessionAsync(authUrl, OAUTH_RETURN_SCHEME);
@@ -74,6 +224,14 @@ export default function App() {
     });
   }
 
+  if (!lockReady) {
+    return (
+      <View style={styles.container}>
+        <StatusBar style="light" />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
@@ -83,6 +241,7 @@ export default function App() {
         style={styles.webview}
         onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
         onNavigationStateChange={onNavigationStateChange}
+        onMessage={onMessage}
         setSupportMultipleWindows={false}
         allowsBackForwardNavigationGestures
         sharedCookiesEnabled
@@ -92,6 +251,14 @@ export default function App() {
         domStorageEnabled
         decelerationRate="normal"
       />
+      {locked && (
+        <View style={styles.lockOverlay}>
+          <Text style={styles.lockTitle}>Datebook is locked</Text>
+          <Pressable style={styles.unlockButton} onPress={() => void tryUnlock()} disabled={authenticating}>
+            <Text style={styles.unlockButtonText}>{authenticating ? "Checking…" : "Unlock with Face ID"}</Text>
+          </Pressable>
+        </View>
+      )}
     </View>
   );
 }
@@ -104,5 +271,33 @@ const styles = StyleSheet.create({
   webview: {
     flex: 1,
     backgroundColor: "#07070a",
+  },
+  lockOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 20,
+    backgroundColor: "#07070a",
+  },
+  lockTitle: {
+    color: "#f4f4f5",
+    fontSize: 17,
+    fontWeight: "600",
+  },
+  unlockButton: {
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#3f3f46",
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+  },
+  unlockButtonText: {
+    color: "#f4f4f5",
+    fontSize: 15,
+    fontWeight: "500",
   },
 });
