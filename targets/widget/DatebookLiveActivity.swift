@@ -69,14 +69,6 @@ struct DatebookLiveActivity: Widget {
   }
 }
 
-@available(iOS 18.0, *)
-struct DatebookLiveActivityModern: Widget {
-  var body: some WidgetConfiguration {
-    makeDatebookLiveActivityConfiguration()
-      .supplementalActivityFamilies([.small])
-  }
-}
-
 private struct LiveLockView: View {
   var state: DatebookLiveAttributes.ContentState
 
