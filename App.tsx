@@ -412,6 +412,8 @@ export default function App() {
           setSupportMultipleWindows={false}
           allowsBackForwardNavigationGestures
           sharedCookiesEnabled
+          automaticallyAdjustContentInsets={false}
+          contentInsetAdjustmentBehavior="never"
           applicationNameForUserAgent={USER_AGENT_MARKER}
           injectedJavaScriptBeforeContentLoaded={
             "document.documentElement.classList.add('native-ios'); true;"

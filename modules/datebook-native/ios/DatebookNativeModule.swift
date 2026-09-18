@@ -43,28 +43,24 @@ public class DatebookNativeModule: Module {
 
     AsyncFunction("startLive") { (kind: String, id: String, title: String, subtitle: String, start: Double, end: Double, color: String, running: Bool) in
       if #available(iOS 16.2, *) {
-        let attrs = DatebookLiveAttributes(id: "\(kind):\(id)")
-        let state = DatebookLiveAttributes.ContentState(
-          kind: kind, title: title, subtitle: subtitle, start: start, end: end, color: color, running: running
+        await startDatebookLive(
+          kind: kind,
+          id: id,
+          title: title,
+          subtitle: subtitle,
+          start: start,
+          end: end,
+          color: color,
+          running: running
         )
-        let stale = end > 0 ? Date(timeIntervalSince1970: end / 1000) : nil
-        let content = ActivityContent(state: state, staleDate: stale, relevanceScore: running ? 100 : 40)
-        let existing = Activity<DatebookLiveAttributes>.activities.first { $0.attributes.id == attrs.id }
-        if let existing {
-          await existing.update(content)
-        } else {
-          _ = try? Activity.request(attributes: attrs, content: content, pushType: nil)
-        }
       }
-    }
+    }.runOnQueue(.main)
 
     AsyncFunction("endLive") { (kind: String) in
       if #available(iOS 16.2, *) {
-        for activity in Activity<DatebookLiveAttributes>.activities where activity.attributes.id.hasPrefix("\(kind):") {
-          await activity.end(nil, dismissalPolicy: .immediate)
-        }
+        await endDatebookLive(kind: kind)
       }
-    }
+    }.runOnQueue(.main)
 
     Function("readInbox") { () -> String? in
       appGroupDefaults().string(forKey: inboxKey)
@@ -73,5 +69,52 @@ public class DatebookNativeModule: Module {
     Function("clearInbox") {
       appGroupDefaults().removeObject(forKey: inboxKey)
     }
+  }
+}
+
+@available(iOS 16.2, *)
+func startDatebookLive(
+  kind: String,
+  id: String,
+  title: String,
+  subtitle: String,
+  start: Double,
+  end: Double,
+  color: String,
+  running: Bool
+) async {
+  let attrs = DatebookLiveAttributes(id: "\(kind):\(id)")
+  let state = DatebookLiveAttributes.ContentState(
+    kind: kind, title: title, subtitle: subtitle, start: start, end: end, color: color, running: running
+  )
+  let stale = end > 0 ? Date(timeIntervalSince1970: end / 1000) : Date().addingTimeInterval(8 * 60 * 60)
+  let content = ActivityContent(state: state, staleDate: stale, relevanceScore: running ? 100 : 40)
+
+  for activity in Activity<DatebookLiveAttributes>.activities
+    where activity.attributes.id.hasPrefix("\(kind):") && activity.attributes.id != attrs.id {
+    await activity.end(nil, dismissalPolicy: .immediate)
+  }
+
+  if let existing = Activity<DatebookLiveAttributes>.activities.first(where: { $0.attributes.id == attrs.id }) {
+    await existing.update(content)
+    return
+  }
+
+  guard ActivityAuthorizationInfo().areActivitiesEnabled else {
+    NSLog("Datebook Live Activity skipped: system disabled for this app")
+    return
+  }
+
+  do {
+    _ = try Activity.request(attributes: attrs, content: content, pushType: nil)
+  } catch {
+    NSLog("Datebook Live Activity request failed: \(error)")
+  }
+}
+
+@available(iOS 16.2, *)
+func endDatebookLive(kind: String) async {
+  for activity in Activity<DatebookLiveAttributes>.activities where activity.attributes.id.hasPrefix("\(kind):") {
+    await activity.end(nil, dismissalPolicy: .immediate)
   }
 }

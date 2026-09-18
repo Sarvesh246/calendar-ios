@@ -1,6 +1,9 @@
 import ActivityKit
 import Foundation
 
+/// Must stay in lockstep with `modules/datebook-native/ios/DatebookAttributes.swift`.
+/// ActivityKit matches Live Activities by the unqualified attributes type name
+/// plus ContentState Codable keys — not by Swift module identity.
 struct DatebookLiveAttributes: ActivityAttributes {
   public struct ContentState: Codable, Hashable {
     var kind: String

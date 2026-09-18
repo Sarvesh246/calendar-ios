@@ -31,6 +31,7 @@ export type NativeSnapshot = {
     sessionElapsedMs: number;
     targetEndsAt: number | null;
     startedAt: number;
+    color?: string;
   } | null;
   spotlight: unknown[];
   calendarEvents: {
