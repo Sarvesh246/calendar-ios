@@ -482,23 +482,6 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
               reduceTransparency={reduceTransparency}
               interactive
               glassStyle="regular"
-              style={styles.addButton}
-            >
-              <ChromeButton
-                label="Add item"
-                symbol="plus"
-                state={state}
-                reduceMotion={reduceMotion}
-                ink
-                onPress={() => onAction({ type: "compose" })}
-              />
-            </GlassSurface>
-
-            <GlassSurface
-              state={state}
-              reduceTransparency={reduceTransparency}
-              interactive
-              glassStyle="regular"
               style={styles.tabCapsule}
             >
               <View
@@ -545,6 +528,24 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
                   />
                 ))}
               </View>
+            </GlassSurface>
+
+            <GlassSurface
+              state={state}
+              reduceTransparency={reduceTransparency}
+              interactive
+              glassStyle="regular"
+              style={styles.addButton}
+            >
+              <ChromeButton
+                label="Add item"
+                symbol="plus"
+                state={state}
+                reduceMotion={reduceMotion}
+                ink
+                large
+                onPress={() => onAction({ type: "compose" })}
+              />
             </GlassSurface>
           </GlassGroup>
         </View>
@@ -611,13 +612,14 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 10 },
   },
   dockStack: {
+    flexDirection: "row",
     width: "100%",
     maxWidth: 420,
-    alignItems: "center",
-    gap: 8,
+    alignItems: "stretch",
+    gap: 10,
   },
   tabCapsule: {
-    alignSelf: "stretch",
+    flex: 1,
     height: 62,
     borderRadius: 31,
     overflow: "hidden",
@@ -668,10 +670,9 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === "ios" ? "System" : undefined,
   },
   addButton: {
-    minWidth: 88,
-    height: 40,
-    paddingHorizontal: 10,
-    borderRadius: 20,
+    width: 62,
+    height: 62,
+    borderRadius: 31,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
