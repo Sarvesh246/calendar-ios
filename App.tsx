@@ -11,7 +11,9 @@ import * as SecureStore from "expo-secure-store";
 import * as Notifications from "expo-notifications";
 import * as ExpoLinking from "expo-linking";
 import * as Location from "expo-location";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { LockScreen } from "./LockScreen";
+import { DEFAULT_NATIVE_CHROME, NativeChrome, type NativeChromeState } from "./NativeChrome";
 import {
   applySnapshot,
   consumeInbox,
@@ -93,6 +95,8 @@ export default function App() {
   const webviewRef = useRef<WebView>(null);
   const [uri, setUri] = useState(APP_ORIGIN);
   const canGoBack = useRef(false);
+  const [chrome, setChrome] = useState<NativeChromeState>(DEFAULT_NATIVE_CHROME);
+  const [focusRunning, setFocusRunning] = useState(false);
 
   // App Lock: native is the source of truth (it must gate content before any
   // web JS runs), the Settings toggle on the web side is a remote control for
@@ -245,7 +249,14 @@ export default function App() {
       }
 
       if (message.type === "nativeSnapshot" && message.payload) {
-        void applySnapshot(message.payload as unknown as NativeSnapshot);
+        const snapshot = message.payload as unknown as NativeSnapshot;
+        setFocusRunning(Boolean(snapshot.liveFocus?.running));
+        void applySnapshot(snapshot);
+        return;
+      }
+
+      if (message.type === "nativeChromeState" && message.payload) {
+        setChrome(message.payload as unknown as NativeChromeState);
         return;
       }
 
@@ -336,26 +347,44 @@ export default function App() {
   }
 
   return (
-    <View style={styles.container}>
-      <StatusBar style="light" />
-      <WebView
-        ref={webviewRef}
-        source={{ uri }}
-        style={styles.webview}
-        onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
-        onNavigationStateChange={onNavigationStateChange}
-        onMessage={onMessage}
-        setSupportMultipleWindows={false}
-        allowsBackForwardNavigationGestures
-        sharedCookiesEnabled
-        applicationNameForUserAgent={USER_AGENT_MARKER}
-        // Datebook is local-first (Zustand + localStorage); this keeps that
-        // storage in the app's own container across launches and resigns.
-        domStorageEnabled
-        decelerationRate="normal"
-      />
-      {locked && <LockScreen authenticating={authenticating} onUnlock={() => void tryUnlock()} />}
-    </View>
+    <SafeAreaProvider>
+      <View style={styles.container}>
+        <StatusBar style={chrome.appearance === "light" ? "dark" : "light"} />
+        <WebView
+          ref={webviewRef}
+          source={{ uri }}
+          style={styles.webview}
+          onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
+          onNavigationStateChange={onNavigationStateChange}
+          onMessage={onMessage}
+          setSupportMultipleWindows={false}
+          allowsBackForwardNavigationGestures
+          sharedCookiesEnabled
+          applicationNameForUserAgent={USER_AGENT_MARKER}
+          injectedJavaScriptBeforeContentLoaded={
+            "document.documentElement.classList.add('native-ios'); true;"
+          }
+          // Datebook is local-first (Zustand + localStorage); this keeps that
+          // storage in the app's own container across launches and resigns.
+          domStorageEnabled
+          decelerationRate="normal"
+        />
+        {!locked && (
+          <NativeChrome
+            state={chrome}
+            focusRunning={focusRunning}
+            onAction={(action) => {
+              void Haptics.selectionAsync();
+              if (action.type === "navigate") {
+                setChrome((current) => ({ ...current, pathname: action.url }));
+              }
+              pushBridge("nativeIntent", action);
+            }}
+          />
+        )}
+        {locked && <LockScreen authenticating={authenticating} onUnlock={() => void tryUnlock()} />}
+      </View>
+    </SafeAreaProvider>
   );
 }
 
