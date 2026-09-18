@@ -84,7 +84,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p build/Payload
-          cp -r build/App.xcarchive/Products/Applications/*.app build/Payload/
+          APP=$(ls -d build/App.xcarchive/Products/Applications/*.app | head -n1)
+          echo "PlugIns:"
+          ls -la "$APP/PlugIns" || { echo "Missing widget extension PlugIns — Live Activities will not appear"; exit 1; }
+          cp -r "$APP" build/Payload/
           cd build
           zip -qr Datebook-unsigned.ipa Payload
           ls -la Datebook-unsigned.ipa

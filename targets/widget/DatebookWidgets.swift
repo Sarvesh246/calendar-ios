@@ -114,26 +114,33 @@ struct ListWidgetView: View {
 
   @ViewBuilder
   private func listBody(limit: Int, compact: Bool) -> some View {
-    VStack(alignment: .leading, spacing: compact ? 4 : 6) {
-      Text(entry.title)
-        .font(.caption.weight(.semibold))
-        .foregroundStyle(renderingMode == .accented ? .primary : .secondary)
-        .widgetAccentable()
+    VStack(alignment: .leading, spacing: compact ? 5 : 8) {
+      HStack(spacing: 6) {
+        Image(systemName: symbolName)
+          .font(.caption2.weight(.semibold))
+          .foregroundStyle(Color(hex: entry.rows.first?.color ?? "#0A84FF"))
+          .widgetAccentable()
+        Text(entry.title)
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(renderingMode == .accented ? .primary : .secondary)
+          .widgetAccentable()
+        Spacer(minLength: 0)
+      }
       if entry.rows.isEmpty {
-        Text("Nothing yet")
+        Text(emptyCopy)
           .font(compact ? .caption : .subheadline)
           .foregroundStyle(.secondary)
           .frame(maxHeight: .infinity, alignment: .topLeading)
       } else {
         ForEach(entry.rows.prefix(limit), id: \.id) { row in
           HStack(spacing: 8) {
-            Circle()
+            RoundedRectangle(cornerRadius: compact ? 2 : 3, style: .continuous)
               .fill(Color(hex: row.color))
-              .frame(width: compact ? 6 : 7, height: compact ? 6 : 7)
+              .frame(width: compact ? 5 : 6, height: compact ? 12 : 16)
               .widgetAccentable()
             VStack(alignment: .leading, spacing: 1) {
               Text(row.title)
-                .font(compact ? .caption.weight(.medium) : .subheadline.weight(.medium))
+                .font(compact ? .caption.weight(.medium) : .subheadline.weight(.semibold))
                 .lineLimit(1)
               if !compact || family == .accessoryRectangular {
                 Text(row.subtitle)
@@ -146,6 +153,15 @@ struct ListWidgetView: View {
         }
         Spacer(minLength: 0)
       }
+    }
+  }
+
+  private var emptyCopy: String {
+    switch entry.title {
+    case "Classes": return "No classes soon"
+    case "Assignments": return "Nothing due"
+    case "Up next": return "You're clear"
+    default: return "Nothing on today"
     }
   }
 }

@@ -95,35 +95,39 @@ async function scheduleReminders(snapshot: NativeSnapshot) {
 async function syncLive(snapshot: NativeSnapshot) {
   const native = datebookNative();
   if (!native) return;
-  if (snapshot.liveClass) {
-    const c = snapshot.liveClass;
-    const subtitle =
-      c.phase === "live"
-        ? c.location
-          ? `Until ${new Date(c.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · ${c.location}`
-          : "In session"
-        : "Starting soon";
-    await native.startLive("class", c.id, c.title, subtitle, c.startsAt, c.endsAt, c.color, c.phase === "live");
-  } else {
-    await native.endLive("class");
-  }
-  if (snapshot.liveFocus) {
-    const f = snapshot.liveFocus;
-    const end = f.targetEndsAt ?? f.startedAt + f.itemElapsedMs + 60_000;
-    const start = f.targetEndsAt ? f.targetEndsAt - (f.targetEndsAt - Date.now() + (f.running ? 0 : 0)) : f.startedAt;
-    const subtitle = f.running ? "On the clock" : "Paused";
-    await native.startLive(
-      "focus",
-      f.itemId,
-      f.title,
-      subtitle,
-      f.targetEndsAt ? Date.now() : start,
-      f.targetEndsAt ?? end,
-      "#0A84FF",
-      f.running
-    );
-  } else {
-    await native.endLive("focus");
+  try {
+    if (snapshot.liveClass) {
+      const c = snapshot.liveClass;
+      const subtitle =
+        c.phase === "live"
+          ? c.location
+            ? `Until ${new Date(c.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · ${c.location}`
+            : "In session"
+          : "Starting soon";
+      await native.startLive("class", c.id, c.title, subtitle, c.startsAt, c.endsAt, c.color, c.phase === "live");
+    } else {
+      await native.endLive("class");
+    }
+    if (snapshot.liveFocus) {
+      const f = snapshot.liveFocus;
+      const start = f.startedAt;
+      const end = f.targetEndsAt ?? start + Math.max(f.itemElapsedMs, 60_000);
+      const subtitle = f.running ? "On the clock" : "Paused";
+      await native.startLive(
+        "focus",
+        f.itemId,
+        f.title,
+        subtitle,
+        start,
+        end,
+        f.color ?? "#0A84FF",
+        f.running
+      );
+    } else {
+      await native.endLive("focus");
+    }
+  } catch {
+    /* Live Activities unavailable (disabled, or installer stripped the widget). */
   }
 }
 

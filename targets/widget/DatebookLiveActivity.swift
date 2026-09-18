@@ -5,36 +5,38 @@ import WidgetKit
 func makeDatebookLiveActivityConfiguration() -> some WidgetConfiguration {
   ActivityConfiguration(for: DatebookLiveAttributes.self) { context in
     LiveLockView(state: context.state)
-      .padding(16)
+      .padding(14)
       .activityBackgroundTint(liveTint(context.state))
       .activitySystemActionForegroundColor(.white)
   } dynamicIsland: { context in
     DynamicIsland {
       DynamicIslandExpandedRegion(.leading) {
-        Image(systemName: islandSymbol(context.state))
-          .foregroundStyle(Color(hex: context.state.color))
-          .padding(.leading, 4)
+        LiveMark(state: context.state, size: 22)
+          .padding(.leading, 2)
       }
       DynamicIslandExpandedRegion(.trailing) {
         if let interval = liveInterval(context.state) {
           Text(timerInterval: interval, countsDown: true)
             .monospacedDigit()
             .font(.caption.weight(.semibold))
-            .frame(width: 56, alignment: .trailing)
-            .padding(.trailing, 4)
+            .foregroundStyle(Color(hex: context.state.color))
+            .frame(minWidth: 52, alignment: .trailing)
+            .padding(.trailing, 2)
         }
       }
       DynamicIslandExpandedRegion(.center) {
-        Text(context.state.title)
-          .font(.headline)
-          .lineLimit(2)
-          .multilineTextAlignment(.center)
+        VStack(spacing: 2) {
+          Text(liveCaption(context.state))
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary)
+          Text(context.state.title)
+            .font(.headline)
+            .lineLimit(2)
+            .multilineTextAlignment(.center)
+        }
       }
       DynamicIslandExpandedRegion(.bottom) {
-        VStack(alignment: .leading, spacing: 6) {
-          Text(liveCaption(context.state))
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 8) {
           Text(context.state.subtitle)
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -46,8 +48,7 @@ func makeDatebookLiveActivityConfiguration() -> some WidgetConfiguration {
         }
       }
     } compactLeading: {
-      Image(systemName: islandSymbol(context.state))
-        .foregroundStyle(Color(hex: context.state.color))
+      LiveMark(state: context.state, size: 14)
     } compactTrailing: {
       if let interval = liveInterval(context.state) {
         Text(timerInterval: interval, countsDown: true)
@@ -55,17 +56,33 @@ func makeDatebookLiveActivityConfiguration() -> some WidgetConfiguration {
           .font(.caption2.weight(.semibold))
           .frame(minWidth: 36, alignment: .trailing)
           .foregroundStyle(Color(hex: context.state.color))
+      } else {
+        Text(liveCaption(context.state))
+          .font(.caption2.weight(.semibold))
+          .foregroundStyle(Color(hex: context.state.color))
       }
     } minimal: {
-      Image(systemName: islandSymbol(context.state))
-        .foregroundStyle(Color(hex: context.state.color))
+      LiveMark(state: context.state, size: 12)
     }
+    .keylineTint(Color(hex: context.state.color))
   }
 }
 
 struct DatebookLiveActivity: Widget {
   var body: some WidgetConfiguration {
     makeDatebookLiveActivityConfiguration()
+  }
+}
+
+private struct LiveMark: View {
+  var state: DatebookLiveAttributes.ContentState
+  var size: CGFloat
+
+  var body: some View {
+    Image(systemName: islandSymbol(state))
+      .font(.system(size: size, weight: .semibold))
+      .foregroundStyle(Color(hex: state.color))
+      .widgetAccentable()
   }
 }
 
@@ -99,16 +116,14 @@ private struct LiveLockCompactView: View {
   var state: DatebookLiveAttributes.ContentState
 
   var body: some View {
-    HStack(spacing: 12) {
-      Image(systemName: islandSymbol(state))
-        .font(.title3.weight(.semibold))
-        .foregroundStyle(Color(hex: state.color))
-      VStack(alignment: .leading, spacing: 2) {
+    HStack(spacing: 10) {
+      LiveMark(state: state, size: 18)
+      VStack(alignment: .leading, spacing: 1) {
         Text(liveCaption(state))
-          .font(.caption.weight(.semibold))
+          .font(.caption2.weight(.semibold))
           .foregroundStyle(.secondary)
         Text(state.title)
-          .font(.headline)
+          .font(.subheadline.weight(.semibold))
           .lineLimit(1)
       }
       Spacer(minLength: 8)
@@ -116,6 +131,7 @@ private struct LiveLockCompactView: View {
         Text(timerInterval: interval, countsDown: true)
           .monospacedDigit()
           .font(.title3.weight(.semibold))
+          .foregroundStyle(Color(hex: state.color))
           .minimumScaleFactor(0.6)
           .lineLimit(1)
           .frame(minWidth: 52, alignment: .trailing)
@@ -128,17 +144,24 @@ private struct LiveLockFullView: View {
   var state: DatebookLiveAttributes.ContentState
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      HStack {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(spacing: 8) {
+        LiveMark(state: state, size: 16)
         Text(liveCaption(state))
           .font(.caption.weight(.semibold))
           .foregroundStyle(.secondary)
         Spacer()
-        Image(systemName: islandSymbol(state))
-          .foregroundStyle(Color(hex: state.color))
+        Text("Datebook")
+          .font(.caption2.weight(.semibold))
+          .foregroundStyle(.tertiary)
       }
-      Text(state.title).font(.headline)
-      Text(state.subtitle).font(.subheadline).foregroundStyle(.secondary)
+      Text(state.title)
+        .font(.title3.weight(.semibold))
+        .lineLimit(2)
+      Text(state.subtitle)
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+        .lineLimit(2)
       if let interval = liveInterval(state) {
         ProgressView(timerInterval: interval, countsDown: true)
           .tint(Color(hex: state.color))
@@ -148,7 +171,7 @@ private struct LiveLockFullView: View {
 }
 
 private func islandSymbol(_ state: DatebookLiveAttributes.ContentState) -> String {
-  state.kind == "class" ? "graduationcap" : "timer"
+  state.kind == "class" ? "graduationcap.fill" : "timer"
 }
 
 private func liveCaption(_ state: DatebookLiveAttributes.ContentState) -> String {
@@ -162,14 +185,17 @@ private func liveInterval(_ state: DatebookLiveAttributes.ContentState) -> Close
   guard state.end > 0 else { return nil }
   let start = Date(timeIntervalSince1970: state.start / 1000)
   let end = Date(timeIntervalSince1970: state.end / 1000)
+  guard end > Date().addingTimeInterval(-1) else { return nil }
   if end > start { return start...end }
-  return start...start.addingTimeInterval(1)
+  let now = Date()
+  if end > now { return now...end }
+  return nil
 }
 
 private func liveTint(_ state: DatebookLiveAttributes.ContentState) -> Color {
   let brand = Color(hex: state.color)
   if #available(iOS 26.0, *) {
-    return brand.opacity(0.22)
+    return brand.opacity(0.28)
   }
   return Color.black.opacity(0.72)
 }
