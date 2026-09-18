@@ -260,13 +260,19 @@ function TabItem({
         <SymbolView
           name={symbol}
           size={22}
-          weight="medium"
-          tintColor={neutral.faint}
+          weight={selected ? "semibold" : "medium"}
+          tintColor={selected ? state.colors.accent : neutral.faint}
         />
         <Text
           numberOfLines={1}
           allowFontScaling={false}
-          style={[styles.tabLabel, { color: neutral.faint, fontWeight: "500" }]}
+          style={[
+            styles.tabLabel,
+            {
+              color: selected ? state.colors.accent : neutral.faint,
+              fontWeight: selected ? "600" : "500",
+            },
+          ]}
         >
           {label}
         </Text>
@@ -290,8 +296,10 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
   const [pillHidden, setPillHidden] = useState(false);
   const indicatorX = useRef(new Animated.Value(0)).current;
   const askReveal = useRef(new Animated.Value(state.inRoom ? 0 : 1)).current;
-  // 0 = settled (solid accent fill, resting flush in the bar), 1 = picked up
-  // (neutral glass, lifted with a bigger shadow) while a finger holds it.
+  // 0 = settled in the bar, 1 = picked up with a slightly larger highlight
+  // and shadow while a finger holds it. The lens itself stays native clear
+  // glass throughout; changing it into an accent-colored fill mid-gesture is
+  // what made the previous transition look layered instead of liquid.
   const pillLift = useRef(new Animated.Value(0)).current;
   const dragOrigin = useRef(0);
   const dragPosition = useRef(0);
@@ -303,7 +311,6 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
   // onLayout includes the track's 4pt padding on both sides. Measuring only
   // the usable inner width keeps the trailing pill fully inside the capsule.
   const segmentWidth = tabBarWidth > 0 ? (tabBarWidth - 8) / TABS.length : 0;
-  const counterIndicatorX = useMemo(() => Animated.multiply(indicatorX, -1), [indicatorX]);
   const routeIndex = TABS.findIndex((tab) => tab.url === state.pathname);
   const nativeGlass = Platform.OS === "ios" && isGlassEffectAPIAvailable() && !reduceTransparency;
 
@@ -538,74 +545,38 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
                           {
                             scale: reduceMotion
                               ? 1
-                              : pillLift.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] }),
+                              : pillLift.interpolate({ inputRange: [0, 1], outputRange: [1, 1.035] }),
                           },
                         ],
-                        shadowOpacity: reduceMotion ? 0.2 : pillLift.interpolate({ inputRange: [0, 1], outputRange: [0.16, 0.4] }),
-                        shadowRadius: reduceMotion ? 8 : pillLift.interpolate({ inputRange: [0, 1], outputRange: [5, 16] }),
+                        shadowOpacity: reduceMotion ? 0.16 : pillLift.interpolate({ inputRange: [0, 1], outputRange: [0.12, 0.28] }),
+                        shadowRadius: reduceMotion ? 7 : pillLift.interpolate({ inputRange: [0, 1], outputRange: [5, 12] }),
                         shadowOffset: {
                           width: 0,
-                          height: reduceMotion ? 2 : (pillLift.interpolate({ inputRange: [0, 1], outputRange: [1, 8] }) as unknown as number),
+                          height: reduceMotion ? 2 : (pillLift.interpolate({ inputRange: [0, 1], outputRange: [1, 5] }) as unknown as number),
                         },
                       },
                     ]}
                   >
-                    <View style={styles.selectedPillClip}>
-                      {/* One continuously-interpolated fill cannot leave two
-                          stacked layers half-visible or stuck out of sync. */}
-                      <Animated.View
-                        style={[
-                          styles.selectedPill,
-                          {
-                            borderColor: alpha("#ffffff", state.appearance === "dark" ? 0.3 : 0.55),
-                            backgroundColor: reduceMotion
-                              ? state.colors.accent
-                              : pillLift.interpolate({
-                                  inputRange: [0, 1],
-                                  outputRange: [
-                                    state.colors.accent,
-                                    nativeGlass
-                                      ? alpha(state.colors.ink, state.appearance === "dark" ? 0.32 : 0.22)
-                                      : alpha(state.colors.surface, state.appearance === "dark" ? 0.97 : 0.99),
-                                  ],
-                                }),
-                          },
-                        ]}
-                      />
-                      <Animated.View
-                        style={[
-                          styles.selectedContentStrip,
-                          {
-                            width: segmentWidth * TABS.length,
-                            transform: [{ translateX: counterIndicatorX }],
-                          },
-                        ]}
-                      >
-                        {TABS.map((tab) => (
-                          <View key={tab.url} style={[styles.selectedContentSlot, { width: segmentWidth }]}>
-                            <SymbolView
-                              name={tab.symbol}
-                              size={22}
-                              weight="semibold"
-                              tintColor={dragging ? state.colors.accent : state.colors.accentInk}
-                            />
-                            <Text
-                              numberOfLines={1}
-                              allowFontScaling={false}
-                              style={[
-                                styles.tabLabel,
-                                {
-                                  color: dragging ? state.colors.accent : state.colors.accentInk,
-                                  fontWeight: "600",
-                                },
-                              ]}
-                            >
-                              {tab.label}
-                            </Text>
-                          </View>
-                        ))}
-                      </Animated.View>
-                    </View>
+                    <GlassSurface
+                      state={state}
+                      reduceTransparency={reduceTransparency}
+                      glassStyle="clear"
+                      interactive
+                      flat
+                      tintColor={nativeGlass
+                        ? undefined
+                        : alpha(state.colors.surface, state.appearance === "dark" ? 0.94 : 0.86)}
+                      style={[
+                        styles.selectedPill,
+                        {
+                          borderColor: nativeGlass
+                            ? "transparent"
+                            : alpha("#ffffff", state.appearance === "dark" ? 0.24 : 0.48),
+                        },
+                      ]}
+                    >
+                      {null}
+                    </GlassSurface>
                   </Animated.View>
                 )}
                 {TABS.map((tab, index) => (
@@ -720,32 +691,14 @@ const styles = StyleSheet.create({
     bottom: 4,
     left: 4,
     shadowColor: "#000",
-    zIndex: 2,
+    zIndex: 1,
   },
-  selectedPillClip: {
+  selectedPill: {
     flex: 1,
     marginHorizontal: 3,
     borderRadius: 22,
     overflow: "hidden",
-  },
-  selectedPill: {
-    flex: 1,
-    borderRadius: 22,
-    overflow: "hidden",
     borderWidth: StyleSheet.hairlineWidth,
-  },
-  selectedContentStrip: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    left: -3,
-    flexDirection: "row",
-  },
-  selectedContentSlot: {
-    height: "100%",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 2,
   },
   tabPressable: {
     flex: 1,
@@ -754,7 +707,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 4,
-    zIndex: 1,
+    zIndex: 2,
   },
   tabItemInner: {
     alignItems: "center",
