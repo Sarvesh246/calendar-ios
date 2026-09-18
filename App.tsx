@@ -8,7 +8,17 @@ import * as Haptics from "expo-haptics";
 import * as QuickActions from "expo-quick-actions";
 import * as LocalAuthentication from "expo-local-authentication";
 import * as SecureStore from "expo-secure-store";
+import * as Notifications from "expo-notifications";
+import * as ExpoLinking from "expo-linking";
+import * as Location from "expo-location";
 import { LockScreen } from "./LockScreen";
+import {
+  applySnapshot,
+  consumeInbox,
+  notificationDeepLink,
+  requestNativeNotifications,
+} from "./lib/apply-snapshot";
+import type { NativeSnapshot } from "./lib/snapshot-types";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -57,6 +67,26 @@ function quickActionTarget(id: string) {
   if (id === "compose") return `${APP_ORIGIN}/today?intent=compose`;
   if (id === "focus") return `${APP_ORIGIN}/today?intent=focus`;
   return `${APP_ORIGIN}/today`;
+}
+
+function openUrlToApp(url: string) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === "datebook:") {
+      const intent = parsed.searchParams.get("intent") || parsed.hostname;
+      const item = parsed.searchParams.get("item");
+      const prefill = parsed.searchParams.get("prefill") ?? parsed.searchParams.get("text");
+      const q = new URLSearchParams();
+      if (intent && intent !== "open") q.set("intent", intent === "inbox" ? "inbox" : intent);
+      if (item) q.set("item", item);
+      if (prefill) q.set("prefill", prefill);
+      const path = intent === "inbox" || parsed.pathname.includes("settings") ? "/settings" : "/today";
+      return `${APP_ORIGIN}${path}${q.toString() ? `?${q}` : ""}`;
+    }
+  } catch {
+    /* fall through */
+  }
+  return url;
 }
 
 export default function App() {
@@ -139,10 +169,39 @@ export default function App() {
     return () => sub.remove();
   }, []);
 
+  useEffect(() => {
+    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
+      const target = notificationDeepLink(response);
+      if (target) setUri(target);
+    });
+    void Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (!response) return;
+      const target = notificationDeepLink(response);
+      if (target) setUri(target);
+    });
+    return () => sub.remove();
+  }, []);
+
+  useEffect(() => {
+    const apply = (url: string) => setUri(openUrlToApp(url));
+    const sub = ExpoLinking.addEventListener("url", (e) => apply(e.url));
+    void ExpoLinking.getInitialURL().then((url) => {
+      if (url) apply(url);
+    });
+    return () => sub.remove();
+  }, []);
+
   const pushBridge = useCallback((type: string, payload: unknown) => {
     const script = `window.__datebookBridge && window.__datebookBridge.dispatch(${JSON.stringify({ type, payload })}); true;`;
     webviewRef.current?.injectJavaScript(script);
   }, []);
+
+  useEffect(() => {
+    if (!lockReady || locked) return;
+    void consumeInbox(pushBridge).then((url) => {
+      if (url) setUri(url);
+    });
+  }, [lockReady, locked, pushBridge]);
 
   // Messages posted from lib/native-bridge.ts on the web side.
   const onMessage = useCallback(
@@ -176,6 +235,49 @@ export default function App() {
         appLock.current = next;
         void writeAppLock(next);
         return;
+      }
+
+      if (message.type === "requestNativeNotifications") {
+        void requestNativeNotifications().then((granted) => {
+          pushBridge("nativeNotificationState", { granted });
+        });
+        return;
+      }
+
+      if (message.type === "nativeSnapshot" && message.payload) {
+        void applySnapshot(message.payload as unknown as NativeSnapshot);
+        return;
+      }
+
+      if (message.type === "requestPlace") {
+        void (async () => {
+          const perm = await Location.requestForegroundPermissionsAsync();
+          if (perm.status !== "granted") return;
+          const here = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          let name = typeof message.payload?.name === "string" ? message.payload.name : "";
+          try {
+            const geo = await Location.reverseGeocodeAsync({
+              latitude: here.coords.latitude,
+              longitude: here.coords.longitude,
+            });
+            const hit = geo[0];
+            if (!name && hit) name = [hit.name, hit.street, hit.city].filter(Boolean).join(", ");
+          } catch {
+            /* keep typed name */
+          }
+          pushBridge("nativePlace", {
+            lat: here.coords.latitude,
+            lng: here.coords.longitude,
+            name: name || "Current location",
+          });
+        })();
+        return;
+      }
+
+      if (message.type === "getNativeCapabilities") {
+        pushBridge("nativeCapabilities", {
+          calendar: "Datebook can add a calendar named Datebook in Calendar.app.",
+        });
       }
     },
     [pushBridge]

@@ -11,9 +11,19 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.sarveshjagtap.datebook",
-      "buildNumber": "1",
+      "buildNumber": "2",
       "infoPlist": {
-        "NSFaceIDUsageDescription": "Datebook uses Face ID to keep your calendar locked when you're not using it."
+        "NSFaceIDUsageDescription": "Datebook uses Face ID to keep your calendar locked when you're not using it.",
+        "NSSupportsLiveActivities": true,
+        "NSSupportsLiveActivitiesFrequentUpdates": true,
+        "NSCalendarsUsageDescription": "Datebook can keep a copy of your classes and assignments in Apple Calendar.",
+        "NSCalendarsFullAccessUsageDescription": "Datebook can keep a copy of your classes and assignments in Apple Calendar.",
+        "NSLocationWhenInUseUsageDescription": "Datebook uses your location for arrive-here reminders.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Datebook uses your location so arrive-here reminders can fire when Datebook is closed.",
+        "UIBackgroundModes": ["fetch", "processing", "location"]
+      },
+      "entitlements": {
+        "com.apple.security.application-groups": ["group.com.sarveshjagtap.datebook"]
       }
     },
     "android": {
@@ -47,7 +57,25 @@
           "backgroundColor": "#07070a"
         }
       ],
-      "expo-status-bar"
+      "expo-status-bar",
+      [
+        "expo-notifications",
+        {
+          "sounds": [],
+          "mode": "production"
+        }
+      ],
+      "expo-calendar",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Datebook uses your location so arrive-here reminders can fire when Datebook is closed.",
+          "isIosBackgroundLocationEnabled": true
+        }
+      ],
+      "expo-background-fetch",
+      "expo-task-manager",
+      "@bacons/apple-targets"
     ]
   }
 }
