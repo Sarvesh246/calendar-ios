@@ -94,10 +94,6 @@ function alpha(hex: string, opacity: number) {
   return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${opacity})`;
 }
 
-function tabProgress(selection: number, index: number) {
-  return Math.max(0, 1 - Math.abs(selection - index));
-}
-
 function GlassSurface({
   children,
   state,
@@ -242,24 +238,16 @@ function TabItem({
   label,
   symbol,
   state,
-  progress,
-  pillFilled,
+  selected,
   onPress,
 }: {
   label: string;
   symbol: SFSymbol;
   state: NativeChromeState;
-  progress: number;
-  pillFilled: boolean;
+  selected: boolean;
   onPress: () => void;
 }) {
   const neutral = chromeNeutral(state);
-  const selected = progress > 0.5;
-  // While the pill is settled it's a solid accent fill, so the glyph riding
-  // on top needs the theme's on-accent ink for contrast. Mid-drag the pill is
-  // a neutral glass blob instead, so the glyph carries the accent color itself.
-  const tint = selected ? (pillFilled ? state.colors.accentInk : state.colors.accent) : neutral.faint;
-
   return (
     <Pressable
       accessibilityRole="tab"
@@ -272,13 +260,13 @@ function TabItem({
         <SymbolView
           name={symbol}
           size={22}
-          weight={selected ? "semibold" : "medium"}
-          tintColor={tint}
+          weight="medium"
+          tintColor={neutral.faint}
         />
         <Text
           numberOfLines={1}
           allowFontScaling={false}
-          style={[styles.tabLabel, { color: tint, fontWeight: selected ? "600" : "500" }]}
+          style={[styles.tabLabel, { color: neutral.faint, fontWeight: "500" }]}
         >
           {label}
         </Text>
@@ -293,12 +281,12 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
   const [reduceMotion, setReduceMotion] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [tabBarWidth, setTabBarWidth] = useState(0);
-  const [selection, setSelection] = useState(0);
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const [dragging, setDragging] = useState(false);
   // True only when the current route has no matching tab (Settings/Schedule).
-  // Rubber-band overscroll can drift `selection` slightly negative too, but
-  // that's not "no selection" — gating the pill's visibility on this instead
-  // of `selection >= 0` is what keeps it from vanishing mid-drag.
+  // Rubber-band overscroll can drift the animated position slightly negative,
+  // but that is not "no selection". Keep visibility separate from position so
+  // the pill cannot vanish while a finger is still dragging it.
   const [pillHidden, setPillHidden] = useState(false);
   const indicatorX = useRef(new Animated.Value(0)).current;
   const askReveal = useRef(new Animated.Value(state.inRoom ? 0 : 1)).current;
@@ -312,7 +300,10 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
   const didDrag = useRef(false);
   const tapX = useRef(0);
 
-  const segmentWidth = tabBarWidth > 0 ? tabBarWidth / TABS.length : 0;
+  // onLayout includes the track's 4pt padding on both sides. Measuring only
+  // the usable inner width keeps the trailing pill fully inside the capsule.
+  const segmentWidth = tabBarWidth > 0 ? (tabBarWidth - 8) / TABS.length : 0;
+  const counterIndicatorX = useMemo(() => Animated.multiply(indicatorX, -1), [indicatorX]);
   const routeIndex = TABS.findIndex((tab) => tab.url === state.pathname);
   const nativeGlass = Platform.OS === "ios" && isGlassEffectAPIAvailable() && !reduceTransparency;
 
@@ -335,14 +326,6 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
       hide.remove();
     };
   }, []);
-
-  useEffect(() => {
-    const id = indicatorX.addListener(({ value }) => {
-      if (!segmentWidth) return;
-      setSelection(value / segmentWidth);
-    });
-    return () => indicatorX.removeListener(id);
-  }, [indicatorX, segmentWidth]);
 
   useEffect(() => {
     if (reduceMotion) {
@@ -377,9 +360,9 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
     if (!segmentWidth) return;
     const target = index * segmentWidth;
     dragPosition.current = target;
+    setSelectedIndex(index);
     if (reduceMotion) {
       indicatorX.setValue(target);
-      setSelection(index);
       return;
     }
     Animated.spring(indicatorX, {
@@ -388,13 +371,14 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
       stiffness: 265,
       damping: 20,
       mass: 0.72,
-      useNativeDriver: false,
+      useNativeDriver: true,
     }).start();
   }, [indicatorX, reduceMotion, segmentWidth]);
 
   useEffect(() => {
     if (routeIndex < 0) {
       previewIndex.current = -1;
+      setSelectedIndex(-1);
       setPillHidden(true);
       return;
     }
@@ -444,6 +428,7 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
       const nextIndex = Math.max(0, Math.min(TABS.length - 1, Math.round(next / segmentWidth)));
       if (nextIndex !== previewIndex.current) {
         previewIndex.current = nextIndex;
+        setSelectedIndex(nextIndex);
         void Haptics.selectionAsync();
       }
     },
@@ -451,7 +436,7 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
       setDragging(false);
       if (!segmentWidth) return;
       if (!didDrag.current) {
-        const tapped = Math.max(0, Math.min(TABS.length - 1, Math.floor(tapX.current / segmentWidth)));
+        const tapped = Math.max(0, Math.min(TABS.length - 1, Math.floor((tapX.current - 4) / segmentWidth)));
         if (tapped !== lastTabIndex.current) void Haptics.selectionAsync();
         navigateToTab(tapped, 0);
         return;
@@ -508,7 +493,17 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
       </GlassSurface>
 
       {!keyboardVisible && (
-        <View pointerEvents="box-none" style={[styles.dockWrap, { bottom: insets.bottom + 10 }]}>
+        <View
+          pointerEvents="box-none"
+          style={[
+            styles.dockWrap,
+            {
+              bottom: insets.bottom + 10,
+              left: Math.max(12, insets.left + 8),
+              right: Math.max(12, insets.right + 8),
+            },
+          ]}
+        >
           {/* A tighter merge spacing than the row's own gap keeps the tab pill
               and the add button from fusing into one blob — the default
               GlassContainer spacing (18) is wider than the 12pt gap between
@@ -551,32 +546,62 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
                       },
                     ]}
                   >
-                    {/* A single fill that animates directly between the two
-                        colors, instead of crossfading two stacked layers —
-                        two independently-animated opacities could drift out
-                        of sync (each mid-transition, or one stuck) and leave
-                        the pill with no visible fill at all. One value can't
-                        do that: it is always fully one color or a genuine
-                        blend of the two. */}
-                    <Animated.View
-                      style={[
-                        styles.selectedPill,
-                        {
-                          borderColor: alpha("#ffffff", state.appearance === "dark" ? 0.3 : 0.55),
-                          backgroundColor: reduceMotion
-                            ? state.colors.accent
-                            : pillLift.interpolate({
-                                inputRange: [0, 1],
-                                outputRange: [
-                                  state.colors.accent,
-                                  nativeGlass
-                                    ? alpha(state.colors.ink, state.appearance === "dark" ? 0.32 : 0.22)
-                                    : alpha(state.colors.surface, state.appearance === "dark" ? 0.97 : 0.99),
-                                ],
-                              }),
-                        },
-                      ]}
-                    />
+                    <View style={styles.selectedPillClip}>
+                      {/* One continuously-interpolated fill cannot leave two
+                          stacked layers half-visible or stuck out of sync. */}
+                      <Animated.View
+                        style={[
+                          styles.selectedPill,
+                          {
+                            borderColor: alpha("#ffffff", state.appearance === "dark" ? 0.3 : 0.55),
+                            backgroundColor: reduceMotion
+                              ? state.colors.accent
+                              : pillLift.interpolate({
+                                  inputRange: [0, 1],
+                                  outputRange: [
+                                    state.colors.accent,
+                                    nativeGlass
+                                      ? alpha(state.colors.ink, state.appearance === "dark" ? 0.32 : 0.22)
+                                      : alpha(state.colors.surface, state.appearance === "dark" ? 0.97 : 0.99),
+                                  ],
+                                }),
+                          },
+                        ]}
+                      />
+                      <Animated.View
+                        style={[
+                          styles.selectedContentStrip,
+                          {
+                            width: segmentWidth * TABS.length,
+                            transform: [{ translateX: counterIndicatorX }],
+                          },
+                        ]}
+                      >
+                        {TABS.map((tab) => (
+                          <View key={tab.url} style={[styles.selectedContentSlot, { width: segmentWidth }]}>
+                            <SymbolView
+                              name={tab.symbol}
+                              size={22}
+                              weight="semibold"
+                              tintColor={dragging ? state.colors.accent : state.colors.accentInk}
+                            />
+                            <Text
+                              numberOfLines={1}
+                              allowFontScaling={false}
+                              style={[
+                                styles.tabLabel,
+                                {
+                                  color: dragging ? state.colors.accent : state.colors.accentInk,
+                                  fontWeight: "600",
+                                },
+                              ]}
+                            >
+                              {tab.label}
+                            </Text>
+                          </View>
+                        ))}
+                      </Animated.View>
+                    </View>
                   </Animated.View>
                 )}
                 {TABS.map((tab, index) => (
@@ -585,8 +610,7 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
                     label={tab.label}
                     symbol={tab.symbol}
                     state={state}
-                    progress={pillHidden ? 0 : tabProgress(selection, index)}
-                    pillFilled={!dragging}
+                    selected={!pillHidden && selectedIndex === index}
                     onPress={() => {
                       if (index !== lastTabIndex.current) void Haptics.selectionAsync();
                       navigateToTab(index);
@@ -638,6 +662,8 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: 25,
     overflow: "hidden",
+    zIndex: 40,
+    elevation: 40,
   },
   chromeButton: {
     width: 42,
@@ -661,9 +687,9 @@ const styles = StyleSheet.create({
   },
   dockWrap: {
     position: "absolute",
-    left: 22,
-    right: 22,
     alignItems: "center",
+    zIndex: 40,
+    elevation: 40,
   },
   dockStack: {
     flexDirection: "row",
@@ -690,17 +716,32 @@ const styles = StyleSheet.create({
     bottom: 4,
     left: 4,
     shadowColor: "#000",
+    zIndex: 2,
   },
-  selectedPill: {
+  selectedPillClip: {
     flex: 1,
-    // A few px of breathing room on each side, rather than filling the full
-    // segment width edge-to-edge. Without it, the pill for the first/last
-    // tab sits flush against the capsule's own (more generous) corner
-    // radius and visibly pokes past it instead of nesting inside the curve.
     marginHorizontal: 3,
     borderRadius: 22,
     overflow: "hidden",
+  },
+  selectedPill: {
+    flex: 1,
+    borderRadius: 22,
+    overflow: "hidden",
     borderWidth: StyleSheet.hairlineWidth,
+  },
+  selectedContentStrip: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: -3,
+    flexDirection: "row",
+  },
+  selectedContentSlot: {
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2,
   },
   tabPressable: {
     flex: 1,
@@ -737,6 +778,8 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
+    zIndex: 40,
+    elevation: 40,
   },
   focusActions: {
     position: "absolute",
@@ -750,6 +793,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-around",
     paddingHorizontal: 6,
+    zIndex: 40,
+    elevation: 40,
   },
   divider: {
     width: StyleSheet.hairlineWidth,
