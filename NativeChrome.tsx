@@ -10,6 +10,7 @@ import {
   Platform,
   Pressable,
   StyleSheet,
+  Text,
   View,
   type LayoutChangeEvent,
   type ViewStyle,
@@ -28,6 +29,7 @@ export type NativeChromeState = {
     surface: string;
     ink: string;
     inkSoft: string;
+    inkFaint?: string;
     accent: string;
     accentInk: string;
   };
@@ -45,6 +47,7 @@ export const DEFAULT_NATIVE_CHROME: NativeChromeState = {
     surface: "#2c2c2e",
     ink: "#f5f5f7",
     inkSoft: "#aeaeb2",
+    inkFaint: "#858587",
     accent: "#0a84ff",
     accentInk: "#ffffff",
   },
@@ -67,12 +70,23 @@ const TABS: { label: string; url: string; symbol: SFSymbol }[] = [
   { label: "Agenda", url: "/agenda", symbol: "list.bullet" },
 ];
 
+function chromeColors(state: NativeChromeState) {
+  return {
+    ...state.colors,
+    inkFaint: state.colors.inkFaint || state.colors.inkSoft,
+  };
+}
+
 function alpha(hex: string, opacity: number) {
   const raw = hex.trim().replace("#", "");
   const expanded = raw.length === 3 ? raw.split("").map((part) => part + part).join("") : raw;
   if (!/^[0-9a-f]{6}$/i.test(expanded)) return `rgba(44, 44, 46, ${opacity})`;
   const value = Number.parseInt(expanded, 16);
   return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${opacity})`;
+}
+
+function tabProgress(selection: number, index: number) {
+  return Math.max(0, 1 - Math.abs(selection - index));
 }
 
 function GlassSurface({
@@ -83,14 +97,16 @@ function GlassSurface({
   tintColor,
   glassStyle = "regular",
   interactive = false,
+  flat = false,
 }: {
   children: ReactNode;
   state: NativeChromeState;
   reduceTransparency: boolean;
   style: ViewStyle | ViewStyle[];
   tintColor?: string;
-  glassStyle?: "clear" | "regular";
+  glassStyle?: "clear" | "regular" | "none";
   interactive?: boolean;
+  flat?: boolean;
 }) {
   const nativeGlass = Platform.OS === "ios" && isGlassEffectAPIAvailable() && !reduceTransparency;
   if (nativeGlass) {
@@ -106,16 +122,19 @@ function GlassSurface({
       </GlassView>
     );
   }
+  const fill = !tintColor
+    ? alpha(state.colors.surface, reduceTransparency ? 0.98 : 0.92)
+    : tintColor.startsWith("rgb") || tintColor === "transparent"
+      ? tintColor
+      : alpha(tintColor, reduceTransparency ? 0.98 : 0.88);
   return (
     <View
       style={[
         style,
-        styles.fallbackSurface,
+        !flat && styles.fallbackSurface,
         {
-          backgroundColor: tintColor
-            ? alpha(tintColor, reduceTransparency ? 0.98 : 0.88)
-            : alpha(state.colors.surface, reduceTransparency ? 0.98 : 0.92),
-          borderColor: alpha(state.colors.ink, state.appearance === "dark" ? 0.16 : 0.1),
+          backgroundColor: fill,
+          borderColor: fill === "transparent" ? "transparent" : alpha(state.colors.ink, state.appearance === "dark" ? 0.16 : 0.1),
         },
       ]}
     >
@@ -131,7 +150,7 @@ function GlassGroup({ children, reduceTransparency, style }: {
 }) {
   const nativeGlass = Platform.OS === "ios" && isGlassEffectAPIAvailable() && !reduceTransparency;
   if (nativeGlass) {
-    return <GlassContainer spacing={12} style={style}>{children}</GlassContainer>;
+    return <GlassContainer spacing={10} style={style}>{children}</GlassContainer>;
   }
   return <View style={style}>{children}</View>;
 }
@@ -157,6 +176,7 @@ function ChromeButton({
   large?: boolean;
   onPress: () => void;
 }) {
+  const colors = chromeColors(state);
   const scale = useRef(new Animated.Value(1)).current;
   const springTo = (toValue: number) => {
     if (reduceMotion) {
@@ -193,7 +213,7 @@ function ChromeButton({
             name={symbol}
             size={large ? 22 : 18}
             weight={active ? "semibold" : "medium"}
-            tintColor={active ? state.colors.accent : state.colors.inkSoft}
+            tintColor={active ? state.colors.accent : colors.inkFaint}
           />
           {badge && <View style={[styles.badge, { backgroundColor: state.colors.accent }]} />}
         </View>
@@ -202,12 +222,99 @@ function ChromeButton({
   );
 }
 
+function TabPill({
+  label,
+  symbol,
+  state,
+  reduceMotion,
+  reduceTransparency,
+  progress,
+  onPress,
+}: {
+  label: string;
+  symbol: SFSymbol;
+  state: NativeChromeState;
+  reduceMotion: boolean;
+  reduceTransparency: boolean;
+  progress: number;
+  onPress: () => void;
+}) {
+  const colors = chromeColors(state);
+  const selected = progress > 0.5;
+  const scale = useRef(new Animated.Value(1)).current;
+  const springTo = (toValue: number) => {
+    if (reduceMotion) {
+      scale.setValue(1);
+      return;
+    }
+    Animated.spring(scale, {
+      toValue,
+      stiffness: toValue < 1 ? 380 : 235,
+      damping: toValue < 1 ? 26 : 13,
+      mass: 0.65,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const accentWash = alpha(state.colors.accent, (state.appearance === "dark" ? 0.28 : 0.16) * progress);
+  const quietFill = alpha(state.colors.ink, 0.055 + progress * 0.035);
+  const pillTint = progress > 0.08 ? (isGlassEffectAPIAvailable() && !reduceTransparency ? accentWash : quietFill) : "transparent";
+
+  return (
+    <View style={[styles.tabSlot, { transform: [{ scale: reduceMotion ? 1 : 1 + progress * 0.012 }] }]}>
+      <GlassSurface
+        state={state}
+        reduceTransparency={reduceTransparency}
+        interactive
+        flat
+        glassStyle={progress > 0.45 ? "clear" : "regular"}
+        tintColor={pillTint}
+        style={styles.tabPill}
+      >
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={label}
+          accessibilityState={{ selected }}
+          onPress={onPress}
+          onPressIn={() => springTo(0.94)}
+          onPressOut={() => springTo(1)}
+          style={styles.tabPressable}
+        >
+          <Animated.View style={{ transform: [{ scale }], alignItems: "center", gap: 2 }}>
+            <SymbolView
+              name={symbol}
+              size={22}
+              weight={selected ? "semibold" : "medium"}
+              tintColor={selected ? state.colors.accent : colors.inkFaint}
+            />
+            <Text
+              numberOfLines={1}
+              allowFontScaling={false}
+              style={[
+                styles.tabLabel,
+                {
+                  color: selected ? state.colors.ink : colors.inkFaint,
+                  fontWeight: selected ? "600" : "500",
+                },
+              ]}
+            >
+              {label}
+            </Text>
+          </Animated.View>
+        </Pressable>
+      </GlassSurface>
+    </View>
+  );
+}
+
 export function NativeChrome({ state, focusRunning, onAction }: Props) {
   const insets = useSafeAreaInsets();
+  const colors = chromeColors(state);
   const [reduceTransparency, setReduceTransparency] = useState(false);
   const [reduceMotion, setReduceMotion] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [tabBarWidth, setTabBarWidth] = useState(0);
+  const [selection, setSelection] = useState(0);
   const indicatorX = useRef(new Animated.Value(0)).current;
   const dragOrigin = useRef(0);
   const dragPosition = useRef(0);
@@ -216,6 +323,7 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
 
   const segmentWidth = tabBarWidth > 0 ? tabBarWidth / TABS.length : 0;
   const routeIndex = TABS.findIndex((tab) => tab.url === state.pathname);
+  const nativeGlass = Platform.OS === "ios" && isGlassEffectAPIAvailable() && !reduceTransparency;
 
   useEffect(() => {
     void AccessibilityInfo.isReduceTransparencyEnabled().then(setReduceTransparency);
@@ -237,12 +345,21 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
     };
   }, []);
 
+  useEffect(() => {
+    const id = indicatorX.addListener(({ value }) => {
+      if (!segmentWidth) return;
+      setSelection(value / segmentWidth);
+    });
+    return () => indicatorX.removeListener(id);
+  }, [indicatorX, segmentWidth]);
+
   const settleIndicator = useCallback((index: number, velocity = 0) => {
     if (!segmentWidth) return;
     const target = index * segmentWidth;
     dragPosition.current = target;
     if (reduceMotion) {
       indicatorX.setValue(target);
+      setSelection(index);
       return;
     }
     Animated.spring(indicatorX, {
@@ -251,23 +368,27 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
       stiffness: 265,
       damping: 20,
       mass: 0.72,
-      useNativeDriver: true,
+      useNativeDriver: false,
     }).start();
   }, [indicatorX, reduceMotion, segmentWidth]);
 
   useEffect(() => {
-    if (routeIndex < 0) return;
+    if (routeIndex < 0) {
+      previewIndex.current = -1;
+      setSelection(-1);
+      return;
+    }
     lastTabIndex.current = routeIndex;
     previewIndex.current = routeIndex;
     settleIndicator(routeIndex);
   }, [routeIndex, settleIndicator]);
 
-  const navigateToTab = useCallback((index: number) => {
+  const navigateToTab = useCallback((index: number, velocity = 0) => {
     const tab = TABS[index];
     if (!tab) return;
     lastTabIndex.current = index;
     previewIndex.current = index;
-    settleIndicator(index);
+    settleIndicator(index, velocity);
     if (state.pathname !== tab.url) onAction({ type: "navigate", url: tab.url });
   }, [onAction, settleIndicator, state.pathname]);
 
@@ -297,7 +418,7 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
     onPanResponderRelease: (_, gesture) => {
       const max = segmentWidth * (TABS.length - 1);
       const projected = Math.max(0, Math.min(max, dragPosition.current + gesture.vx * 34));
-      navigateToTab(Math.round(projected / segmentWidth));
+      navigateToTab(Math.round(projected / segmentWidth), gesture.vx);
     },
     onPanResponderTerminate: () => settleIndicator(lastTabIndex.current),
   }), [indicatorX, navigateToTab, segmentWidth, settleIndicator]);
@@ -334,26 +455,54 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
       </GlassSurface>
 
       {!keyboardVisible && (
-        <GlassGroup reduceTransparency={reduceTransparency} style={[styles.bottomRow, { bottom: insets.bottom + 9 }]}>
-          <GlassSurface state={state} reduceTransparency={reduceTransparency} interactive style={styles.tabBar}>
+        <GlassGroup reduceTransparency={reduceTransparency} style={[styles.bottomRow, { bottom: insets.bottom + 12 }]}>
+          <View
+            style={[
+              styles.tabTrack,
+              {
+                backgroundColor: alpha(state.colors.surface, nativeGlass ? 0.42 : 0.82),
+                borderColor: alpha(colors.ink, state.appearance === "dark" ? 0.16 : 0.1),
+              },
+            ]}
+          >
             <View style={styles.tabBarContents} onLayout={onTabBarLayout} {...panResponder.panHandlers}>
-              {segmentWidth > 0 && (
-                <Animated.View pointerEvents="none" style={[styles.indicatorFrame, { width: segmentWidth, transform: [{ translateX: indicatorX }] }]}>
-                  <GlassSurface state={state} reduceTransparency={reduceTransparency} glassStyle="clear" tintColor={alpha(state.colors.accent, state.appearance === "dark" ? 0.42 : 0.28)} style={styles.activeIndicator}>
-                    <View />
-                  </GlassSurface>
-                </Animated.View>
-              )}
               {TABS.map((tab, index) => (
-                <View key={tab.url} style={styles.tabSlot}>
-                  <ChromeButton label={tab.label} symbol={tab.symbol} state={state} reduceMotion={reduceMotion} active={routeIndex === index} highlightActive={false} large onPress={() => navigateToTab(index)} />
-                </View>
+                <TabPill
+                  key={tab.url}
+                  label={tab.label}
+                  symbol={tab.symbol}
+                  state={state}
+                  reduceMotion={reduceMotion}
+                  reduceTransparency={reduceTransparency}
+                  progress={tabProgress(selection, index)}
+                  onPress={() => navigateToTab(index)}
+                />
               ))}
             </View>
-          </GlassSurface>
+          </View>
 
-          <GlassSurface state={state} reduceTransparency={reduceTransparency} interactive tintColor={state.colors.accent} style={[styles.addButton, { backgroundColor: alpha(state.colors.accent, 0.42), borderColor: alpha(state.colors.accentInk, 0.24), shadowColor: state.colors.accent }]}>
-            <ChromeButton label="Add item" symbol="plus" state={{ ...state, colors: { ...state.colors, inkSoft: state.colors.accentInk } }} reduceMotion={reduceMotion} large onPress={() => onAction({ type: "compose" })} />
+          <GlassSurface
+            state={state}
+            reduceTransparency={reduceTransparency}
+            interactive
+            tintColor={state.colors.accent}
+            style={[
+              styles.addButton,
+              {
+                backgroundColor: alpha(state.colors.accent, nativeGlass ? 0.42 : 1),
+                borderColor: alpha(state.colors.accentInk, 0.24),
+                shadowColor: state.colors.accent,
+              },
+            ]}
+          >
+            <ChromeButton
+              label="Add item"
+              symbol="plus"
+              state={{ ...state, colors: { ...colors, inkSoft: state.colors.accentInk, inkFaint: state.colors.accentInk } }}
+              reduceMotion={reduceMotion}
+              large
+              onPress={() => onAction({ type: "compose" })}
+            />
           </GlassSurface>
         </GlassGroup>
       )}
@@ -404,44 +553,49 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 12,
     right: 12,
-    height: 60,
+    height: 58,
     flexDirection: "row",
     gap: 10,
   },
-  tabBar: {
+  tabTrack: {
     flex: 1,
-    height: 60,
-    borderRadius: 30,
+    height: 58,
+    borderRadius: 29,
     overflow: "hidden",
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 4,
   },
   tabBarContents: {
     flex: 1,
-    margin: 4,
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "stretch",
+    gap: 2,
   },
   tabSlot: {
     flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 2,
+    minWidth: 0,
   },
-  indicatorFrame: {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    bottom: 0,
-    paddingHorizontal: 2,
-  },
-  activeIndicator: {
+  tabPill: {
     flex: 1,
-    borderRadius: 26,
+    borderRadius: 25,
     overflow: "hidden",
   },
+  tabPressable: {
+    flex: 1,
+    minHeight: 48,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+  },
+  tabLabel: {
+    fontSize: 10.5,
+    letterSpacing: 0.105,
+    fontFamily: Platform.OS === "ios" ? "System" : undefined,
+  },
   addButton: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
