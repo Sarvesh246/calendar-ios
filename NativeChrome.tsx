@@ -295,6 +295,11 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
   const [tabBarWidth, setTabBarWidth] = useState(0);
   const [selection, setSelection] = useState(0);
   const [dragging, setDragging] = useState(false);
+  // True only when the current route has no matching tab (Settings/Schedule).
+  // Rubber-band overscroll can drift `selection` slightly negative too, but
+  // that's not "no selection" — gating the pill's visibility on this instead
+  // of `selection >= 0` is what keeps it from vanishing mid-drag.
+  const [pillHidden, setPillHidden] = useState(false);
   const indicatorX = useRef(new Animated.Value(0)).current;
   const askReveal = useRef(new Animated.Value(state.inRoom ? 0 : 1)).current;
   // 0 = settled (solid accent fill, resting flush in the bar), 1 = picked up
@@ -390,9 +395,10 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
   useEffect(() => {
     if (routeIndex < 0) {
       previewIndex.current = -1;
-      setSelection(-1);
+      setPillHidden(true);
       return;
     }
+    setPillHidden(false);
     lastTabIndex.current = routeIndex;
     previewIndex.current = routeIndex;
     settleIndicator(routeIndex);
@@ -418,6 +424,7 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
       didDrag.current = false;
       tapX.current = event.nativeEvent.locationX;
       setDragging(true);
+      setPillHidden(false);
       indicatorX.stopAnimation((value) => {
         dragOrigin.current = value;
         dragPosition.current = value;
@@ -466,11 +473,11 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
   if (state.focusMode) {
     return (
       <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-        <GlassSurface state={state} reduceTransparency={reduceTransparency} interactive glassStyle="clear" style={[styles.focusExit, { top: insets.top + 10 }]}>
+        <GlassSurface state={state} reduceTransparency={reduceTransparency} glassStyle="clear" style={[styles.focusExit, { top: insets.top + 10 }]}>
           <ChromeButton label="Exit Focus" symbol="xmark" state={state} reduceMotion={reduceMotion} onPress={() => onAction({ type: "exitFocus" })} />
         </GlassSurface>
         {!keyboardVisible && (
-          <GlassSurface state={state} reduceTransparency={reduceTransparency} interactive style={[styles.focusActions, { bottom: insets.bottom + 9 }]}>
+          <GlassSurface state={state} reduceTransparency={reduceTransparency} style={[styles.focusActions, { bottom: insets.bottom + 9 }]}>
             <ChromeButton label={focusRunning ? "Pause" : "Resume"} symbol={focusRunning ? "pause.fill" : "play.fill"} state={state} reduceMotion={reduceMotion} large onPress={() => onAction({ type: focusRunning ? "pauseFocus" : "resumeFocus" })} />
             <View style={[styles.divider, { backgroundColor: alpha(state.colors.ink, 0.12) }]} />
             <ChromeButton label="End Focus" symbol="stop.fill" state={state} reduceMotion={reduceMotion} large onPress={() => onAction({ type: "endFocus" })} />
@@ -482,13 +489,14 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
 
   return (
     <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-      <GlassSurface state={state} reduceTransparency={reduceTransparency} interactive glassStyle="clear" style={[styles.headerCluster, { top: insets.top + 9 }]}>
+      <GlassSurface state={state} reduceTransparency={reduceTransparency} glassStyle="regular" tintColor={state.colors.surface} style={[styles.headerCluster, { top: insets.top + 9 }]}>
         <Animated.View
           pointerEvents={state.inRoom ? "none" : "auto"}
           style={{
             width: askReveal.interpolate({ inputRange: [0, 1], outputRange: [0, ASK_SLOT] }),
             opacity: askReveal,
             overflow: "hidden",
+            borderRadius: ASK_SLOT / 2,
           }}
         >
           <ChromeButton label="Ask" symbol="sparkles" state={state} reduceMotion={reduceMotion} accent onPress={() => onAction({ type: "ask" })} />
@@ -501,16 +509,6 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
 
       {!keyboardVisible && (
         <View pointerEvents="box-none" style={[styles.dockWrap, { bottom: insets.bottom + 10 }]}>
-          <View
-            pointerEvents="none"
-            style={[
-              styles.dockGlow,
-              {
-                backgroundColor: alpha(state.colors.accent, state.appearance === "dark" ? 0.42 : 0.22),
-                shadowColor: state.colors.accent,
-              },
-            ]}
-          />
           {/* A tighter merge spacing than the row's own gap keeps the tab pill
               and the add button from fusing into one blob — the default
               GlassContainer spacing (18) is wider than the 12pt gap between
@@ -519,7 +517,6 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
             <GlassSurface
               state={state}
               reduceTransparency={reduceTransparency}
-              interactive
               glassStyle="regular"
               tintColor={state.colors.surface}
               style={styles.tabCapsule}
@@ -530,7 +527,7 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
                 onLayout={onTabBarLayout}
                 {...panResponder.panHandlers}
               >
-                {segmentWidth > 0 && selection >= 0 && (
+                {segmentWidth > 0 && !pillHidden && (
                   <Animated.View
                     pointerEvents="none"
                     style={[
@@ -588,7 +585,7 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
                     label={tab.label}
                     symbol={tab.symbol}
                     state={state}
-                    progress={tabProgress(selection, index)}
+                    progress={pillHidden ? 0 : tabProgress(selection, index)}
                     pillFilled={!dragging}
                     onPress={() => {
                       if (index !== lastTabIndex.current) void Haptics.selectionAsync();
@@ -602,7 +599,6 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
             <GlassSurface
               state={state}
               reduceTransparency={reduceTransparency}
-              interactive
               glassStyle="regular"
               tintColor={state.colors.surface}
               style={styles.addButton}
@@ -669,18 +665,6 @@ const styles = StyleSheet.create({
     right: 22,
     alignItems: "center",
   },
-  dockGlow: {
-    position: "absolute",
-    left: "12%",
-    right: "12%",
-    bottom: 4,
-    height: 36,
-    borderRadius: 36,
-    opacity: 0.9,
-    shadowOpacity: 0.55,
-    shadowRadius: 28,
-    shadowOffset: { width: 0, height: 10 },
-  },
   dockStack: {
     flexDirection: "row",
     width: "100%",
@@ -709,7 +693,12 @@ const styles = StyleSheet.create({
   },
   selectedPill: {
     flex: 1,
-    borderRadius: 24,
+    // A few px of breathing room on each side, rather than filling the full
+    // segment width edge-to-edge. Without it, the pill for the first/last
+    // tab sits flush against the capsule's own (more generous) corner
+    // radius and visibly pokes past it instead of nesting inside the curve.
+    marginHorizontal: 3,
+    borderRadius: 22,
     overflow: "hidden",
     borderWidth: StyleSheet.hairlineWidth,
   },
