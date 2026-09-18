@@ -97,6 +97,7 @@ export default function App() {
   const canGoBack = useRef(false);
   const [chrome, setChrome] = useState<NativeChromeState>(DEFAULT_NATIVE_CHROME);
   const [focusRunning, setFocusRunning] = useState(false);
+  const pendingNavigation = useRef<{ url: string; startedAt: number } | null>(null);
 
   // App Lock: native is the source of truth (it must gate content before any
   // web JS runs), the Settings toggle on the web side is a remote control for
@@ -294,7 +295,21 @@ export default function App() {
       }
 
       if (message.type === "nativeChromeState" && message.payload) {
-        setChrome(message.payload as unknown as NativeChromeState);
+        const next = message.payload as unknown as NativeChromeState;
+        const pending = pendingNavigation.current;
+        if (pending && next.pathname === pending.url) {
+          pendingNavigation.current = null;
+          setChrome(next);
+        } else if (pending && Date.now() - pending.startedAt < 1800) {
+          // The web shell can publish its previous route once more while Next
+          // commits a native tab request. Keep every other chrome field fresh,
+          // but never let that stale route move the selection back underneath
+          // the user's finger.
+          setChrome((current) => ({ ...next, pathname: current.pathname }));
+        } else {
+          pendingNavigation.current = null;
+          setChrome(next);
+        }
         return;
       }
 
@@ -430,6 +445,7 @@ export default function App() {
             onAction={(action) => {
               void Haptics.selectionAsync();
               if (action.type === "navigate") {
+                pendingNavigation.current = { url: action.url, startedAt: Date.now() };
                 setChrome((current) => ({ ...current, pathname: action.url }));
               }
               pushBridge("nativeIntent", action);
