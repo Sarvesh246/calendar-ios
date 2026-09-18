@@ -1,0 +1,9 @@
+{
+  "name": "datebook-native",
+  "version": "1.0.0",
+  "description": "Live Activities, Spotlight, widgets, and share inbox for Datebook.",
+  "main": "index.ts",
+  "license": "UNLICENSED",
+  "homepage": "https://datebookcalendar.vercel.app",
+  "author": "Datebook"
+}
