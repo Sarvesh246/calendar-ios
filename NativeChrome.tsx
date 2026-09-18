@@ -371,7 +371,11 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
       stiffness: 265,
       damping: 20,
       mass: 0.72,
-      useNativeDriver: true,
+      // PanResponder writes this same value with setValue while the finger is
+      // down. React Native animated nodes cannot switch from the native driver
+      // back to JS updates, so keep the position on one driver for its entire
+      // lifetime. The lift/press springs remain independently accelerated.
+      useNativeDriver: false,
     }).start();
   }, [indicatorX, reduceMotion, segmentWidth]);
 
