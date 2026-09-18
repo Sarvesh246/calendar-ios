@@ -30,14 +30,21 @@ struct ListEntry: TimelineEntry {
   let date: Date
   let rows: [SnapshotRow]
   let title: String
+  let deepLink: String
 }
 
 struct ListProvider: TimelineProvider {
   let keyPath: KeyPath<SnapshotFile, [SnapshotRow]?>
   let title: String
+  let deepLink: String
 
   func placeholder(in context: Context) -> ListEntry {
-    ListEntry(date: Date(), rows: [SnapshotRow(id: "1", title: "Datebook", subtitle: title, color: "#0A84FF")], title: title)
+    ListEntry(
+      date: Date(),
+      rows: [SnapshotRow(id: "1", title: "Datebook", subtitle: title, color: "#0A84FF")],
+      title: title,
+      deepLink: deepLink
+    )
   }
   func getSnapshot(in context: Context, completion: @escaping (ListEntry) -> Void) {
     completion(entry())
@@ -47,92 +54,190 @@ struct ListProvider: TimelineProvider {
   }
   private func entry() -> ListEntry {
     let snap = loadSnapshot()
-    return ListEntry(date: Date(), rows: snap[keyPath: keyPath] ?? [], title: title)
+    return ListEntry(date: Date(), rows: snap[keyPath: keyPath] ?? [], title: title, deepLink: deepLink)
   }
 }
 
 struct ListWidgetView: View {
   var entry: ListEntry
+  @Environment(\.widgetFamily) private var family
+  @Environment(\.widgetRenderingMode) private var renderingMode
+
   var body: some View {
-    VStack(alignment: .leading, spacing: 6) {
+    Group {
+      switch family {
+      case .accessoryCircular:
+        circularBody
+      case .accessoryInline:
+        Text(entry.rows.first?.title ?? entry.title).lineLimit(1)
+      case .accessoryRectangular:
+        listBody(limit: 2, compact: true)
+      case .systemMedium:
+        listBody(limit: 5, compact: false)
+      default:
+        listBody(limit: 3, compact: false)
+      }
+    }
+    .widgetURL(URL(string: entry.deepLink))
+    .widgetCanvas(tint: Color(hex: entry.rows.first?.color ?? "#0A84FF"), accessory: isAccessory)
+  }
+
+  private var isAccessory: Bool {
+    switch family {
+    case .accessoryCircular, .accessoryInline, .accessoryRectangular:
+      return true
+    default:
+      return false
+    }
+  }
+
+  private var circularBody: some View {
+    VStack(spacing: 1) {
+      Image(systemName: symbolName)
+        .font(.caption.weight(.semibold))
+        .widgetAccentable()
+      Text("\(entry.rows.count)")
+        .font(.headline.monospacedDigit())
+        .minimumScaleFactor(0.7)
+        .lineLimit(1)
+    }
+  }
+
+  private var symbolName: String {
+    switch entry.title {
+    case "Classes": return "graduationcap"
+    case "Assignments": return "checklist"
+    case "Up next": return "clock"
+    default: return "calendar"
+    }
+  }
+
+  @ViewBuilder
+  private func listBody(limit: Int, compact: Bool) -> some View {
+    VStack(alignment: .leading, spacing: compact ? 4 : 6) {
       Text(entry.title)
         .font(.caption.weight(.semibold))
-        .foregroundStyle(.secondary)
+        .foregroundStyle(renderingMode == .accented ? .primary : .secondary)
+        .widgetAccentable()
       if entry.rows.isEmpty {
         Text("Nothing yet")
-          .font(.subheadline)
+          .font(compact ? .caption : .subheadline)
           .foregroundStyle(.secondary)
           .frame(maxHeight: .infinity, alignment: .topLeading)
       } else {
-        ForEach(entry.rows.prefix(4), id: \.id) { row in
+        ForEach(entry.rows.prefix(limit), id: \.id) { row in
           HStack(spacing: 8) {
-            Circle().fill(Color(hex: row.color)).frame(width: 7, height: 7)
+            Circle()
+              .fill(Color(hex: row.color))
+              .frame(width: compact ? 6 : 7, height: compact ? 6 : 7)
+              .widgetAccentable()
             VStack(alignment: .leading, spacing: 1) {
-              Text(row.title).font(.subheadline.weight(.medium)).lineLimit(1)
-              Text(row.subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+              Text(row.title)
+                .font(compact ? .caption.weight(.medium) : .subheadline.weight(.medium))
+                .lineLimit(1)
+              if !compact || family == .accessoryRectangular {
+                Text(row.subtitle)
+                  .font(.caption2)
+                  .foregroundStyle(.secondary)
+                  .lineLimit(1)
+              }
             }
           }
         }
         Spacer(minLength: 0)
       }
     }
-    .padding(12)
-    .widgetCanvas()
   }
 }
 
 extension View {
+  /// iOS 17+: removable container background so Home Screen Liquid Glass / tinted
+  /// / clear modes can replace it. iOS 16 keeps an opaque fill.
   @ViewBuilder
-  func widgetCanvas() -> some View {
+  func widgetCanvas(tint: Color, accessory: Bool = false) -> some View {
     if #available(iOS 17.0, *) {
-      self.containerBackground(for: .widget) { Color(.systemBackground) }
+      self.containerBackground(for: .widget) {
+        if accessory {
+          AccessoryWidgetBackground()
+        } else {
+          LinearGradient(
+            colors: [tint.opacity(0.28), Color.clear],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+          )
+        }
+      }
+    } else if accessory {
+      self
     } else {
-      self.background(Color(.systemBackground))
+      self
+        .padding(12)
+        .background(Color(.systemBackground))
     }
   }
 }
 
+private let widgetFamilies: [WidgetFamily] = [
+  .systemSmall,
+  .systemMedium,
+  .accessoryCircular,
+  .accessoryRectangular,
+  .accessoryInline,
+]
+
 struct TodayWidget: Widget {
   var body: some WidgetConfiguration {
-    StaticConfiguration(kind: "DatebookToday", provider: ListProvider(keyPath: \.today, title: "Today")) { entry in
+    StaticConfiguration(
+      kind: "DatebookToday",
+      provider: ListProvider(keyPath: \.today, title: "Today", deepLink: "datebook://today")
+    ) { entry in
       ListWidgetView(entry: entry)
     }
     .configurationDisplayName("Today")
     .description("What's on today in Datebook.")
-    .supportedFamilies([.systemSmall, .systemMedium])
+    .supportedFamilies(widgetFamilies)
   }
 }
 
 struct UpNextWidget: Widget {
   var body: some WidgetConfiguration {
-    StaticConfiguration(kind: "DatebookUpNext", provider: ListProvider(keyPath: \.upNext, title: "Up next")) { entry in
+    StaticConfiguration(
+      kind: "DatebookUpNext",
+      provider: ListProvider(keyPath: \.upNext, title: "Up next", deepLink: "datebook://today")
+    ) { entry in
       ListWidgetView(entry: entry)
     }
     .configurationDisplayName("Up next")
     .description("The next things on your calendar.")
-    .supportedFamilies([.systemSmall, .systemMedium])
+    .supportedFamilies(widgetFamilies)
   }
 }
 
 struct AssignmentsWidget: Widget {
   var body: some WidgetConfiguration {
-    StaticConfiguration(kind: "DatebookAssignments", provider: ListProvider(keyPath: \.assignments, title: "Assignments")) { entry in
+    StaticConfiguration(
+      kind: "DatebookAssignments",
+      provider: ListProvider(keyPath: \.assignments, title: "Assignments", deepLink: "datebook://agenda")
+    ) { entry in
       ListWidgetView(entry: entry)
     }
     .configurationDisplayName("Assignments")
     .description("Open work, soonest due first.")
-    .supportedFamilies([.systemSmall, .systemMedium])
+    .supportedFamilies(widgetFamilies)
   }
 }
 
 struct ClassesWidget: Widget {
   var body: some WidgetConfiguration {
-    StaticConfiguration(kind: "DatebookClasses", provider: ListProvider(keyPath: \.classes, title: "Classes")) { entry in
+    StaticConfiguration(
+      kind: "DatebookClasses",
+      provider: ListProvider(keyPath: \.classes, title: "Classes", deepLink: "datebook://schedule")
+    ) { entry in
       ListWidgetView(entry: entry)
     }
     .configurationDisplayName("Classes")
     .description("Upcoming class meetings.")
-    .supportedFamilies([.systemSmall, .systemMedium])
+    .supportedFamilies(widgetFamilies)
   }
 }
 
@@ -143,7 +248,11 @@ struct DatebookWidgetBundle: WidgetBundle {
     UpNextWidget()
     AssignmentsWidget()
     ClassesWidget()
-    DatebookLiveActivity()
+    if #available(iOS 18.0, *) {
+      DatebookLiveActivityModern()
+    } else {
+      DatebookLiveActivity()
+    }
   }
 }
 

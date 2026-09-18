@@ -47,11 +47,13 @@ public class DatebookNativeModule: Module {
         let state = DatebookLiveAttributes.ContentState(
           kind: kind, title: title, subtitle: subtitle, start: start, end: end, color: color, running: running
         )
+        let stale = end > 0 ? Date(timeIntervalSince1970: end / 1000) : nil
+        let content = ActivityContent(state: state, staleDate: stale, relevanceScore: running ? 100 : 40)
         let existing = Activity<DatebookLiveAttributes>.activities.first { $0.attributes.id == attrs.id }
         if let existing {
-          await existing.update(ActivityContent(state: state, staleDate: nil))
+          await existing.update(content)
         } else {
-          _ = try? Activity.request(attributes: attrs, content: ActivityContent(state: state, staleDate: nil), pushType: nil)
+          _ = try? Activity.request(attributes: attrs, content: content, pushType: nil)
         }
       }
     }
