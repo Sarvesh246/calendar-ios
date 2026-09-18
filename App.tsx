@@ -1,6 +1,6 @@
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppState, BackHandler, Linking, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { AppState, BackHandler, Linking, Platform, StyleSheet, View } from "react-native";
 import WebView, { type WebViewMessageEvent, type WebViewNavigation } from "react-native-webview";
 import type { ShouldStartLoadRequest } from "react-native-webview/lib/WebViewTypes";
 import * as WebBrowser from "expo-web-browser";
@@ -8,6 +8,7 @@ import * as Haptics from "expo-haptics";
 import * as QuickActions from "expo-quick-actions";
 import * as LocalAuthentication from "expo-local-authentication";
 import * as SecureStore from "expo-secure-store";
+import { LockScreen } from "./LockScreen";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -251,14 +252,7 @@ export default function App() {
         domStorageEnabled
         decelerationRate="normal"
       />
-      {locked && (
-        <View style={styles.lockOverlay}>
-          <Text style={styles.lockTitle}>Datebook is locked</Text>
-          <Pressable style={styles.unlockButton} onPress={() => void tryUnlock()} disabled={authenticating}>
-            <Text style={styles.unlockButtonText}>{authenticating ? "Checking…" : "Unlock with Face ID"}</Text>
-          </Pressable>
-        </View>
-      )}
+      {locked && <LockScreen authenticating={authenticating} onUnlock={() => void tryUnlock()} />}
     </View>
   );
 }
@@ -271,33 +265,5 @@ const styles = StyleSheet.create({
   webview: {
     flex: 1,
     backgroundColor: "#07070a",
-  },
-  lockOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 20,
-    backgroundColor: "#07070a",
-  },
-  lockTitle: {
-    color: "#f4f4f5",
-    fontSize: 17,
-    fontWeight: "600",
-  },
-  unlockButton: {
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#3f3f46",
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-  },
-  unlockButtonText: {
-    color: "#f4f4f5",
-    fontSize: 15,
-    fontWeight: "500",
   },
 });
