@@ -40,17 +40,7 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false,
-      "permissions": [
-        "android.permission.USE_BIOMETRIC",
-        "android.permission.USE_FINGERPRINT",
-        "android.permission.READ_CALENDAR",
-        "android.permission.WRITE_CALENDAR",
-        "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.RECEIVE_BOOT_COMPLETED",
-        "android.permission.WAKE_LOCK"
-      ]
+      "predictiveBackGestureEnabled": false
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -93,38 +83,6 @@
       "expo-task-manager",
       "@bacons/apple-targets",
       "expo-font"
-    ],
-    "extra": {
-      "eas": {
-        "build": {
-          "experimental": {
-            "ios": {
-              "appExtensions": [
-                {
-                  "bundleIdentifier": "com.sarveshjagtap.datebook.widget",
-                  "targetName": "DatebookWidgets",
-                  "entitlements": {
-                    "com.apple.security.application-groups": [
-                      "group.com.sarveshjagtap.datebook"
-                    ]
-                  }
-                },
-                {
-                  "bundleIdentifier": "com.sarveshjagtap.datebook.share",
-                  "targetName": "DatebookShare",
-                  "entitlements": {
-                    "com.apple.security.application-groups": [
-                      "group.com.sarveshjagtap.datebook"
-                    ]
-                  }
-                }
-              ]
-            }
-          }
-        },
-        "projectId": "a73c8ddf-228e-4527-a3bc-1193ba854c80"
-      }
-    },
-    "owner": "sarveshvj"
+    ]
   }
 }
