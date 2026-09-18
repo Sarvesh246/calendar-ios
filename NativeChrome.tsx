@@ -82,7 +82,7 @@ function chromeNeutral(state: NativeChromeState) {
   const dark = state.appearance === "dark";
   return {
     ink: dark ? "#f5f5f7" : "#1c1c1e",
-    faint: dark ? "rgba(245, 245, 247, 0.7)" : "rgba(28, 28, 30, 0.62)",
+    faint: dark ? "rgba(245, 245, 247, 0.86)" : "rgba(28, 28, 30, 0.68)",
   };
 }
 
@@ -521,6 +521,7 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
               reduceTransparency={reduceTransparency}
               interactive
               glassStyle="regular"
+              tintColor={state.colors.surface}
               style={styles.tabCapsule}
             >
               <View
@@ -553,39 +554,32 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
                       },
                     ]}
                   >
-                    <View
+                    {/* A single fill that animates directly between the two
+                        colors, instead of crossfading two stacked layers —
+                        two independently-animated opacities could drift out
+                        of sync (each mid-transition, or one stuck) and leave
+                        the pill with no visible fill at all. One value can't
+                        do that: it is always fully one color or a genuine
+                        blend of the two. */}
+                    <Animated.View
                       style={[
                         styles.selectedPill,
-                        { borderColor: alpha("#ffffff", state.appearance === "dark" ? 0.3 : 0.55) },
+                        {
+                          borderColor: alpha("#ffffff", state.appearance === "dark" ? 0.3 : 0.55),
+                          backgroundColor: reduceMotion
+                            ? state.colors.accent
+                            : pillLift.interpolate({
+                                inputRange: [0, 1],
+                                outputRange: [
+                                  state.colors.accent,
+                                  nativeGlass
+                                    ? alpha(state.colors.ink, state.appearance === "dark" ? 0.32 : 0.22)
+                                    : alpha(state.colors.surface, state.appearance === "dark" ? 0.97 : 0.99),
+                                ],
+                              }),
+                        },
                       ]}
-                    >
-                      {/* Settled: a solid accent fill says "this is the selected
-                          page." Picked up: it fades to a neutral glass blob so
-                          it reads as lifted, not still committed to a tab. */}
-                      <Animated.View
-                        pointerEvents="none"
-                        style={[
-                          StyleSheet.absoluteFill,
-                          {
-                            backgroundColor: state.colors.accent,
-                            opacity: reduceMotion ? 1 : pillLift.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
-                          },
-                        ]}
-                      />
-                      <Animated.View
-                        pointerEvents="none"
-                        style={[
-                          StyleSheet.absoluteFill,
-                          {
-                            backgroundColor: nativeGlass
-                              ? alpha(state.colors.ink, state.appearance === "dark" ? 0.22 : 0.16)
-                              : alpha(state.colors.surface, state.appearance === "dark" ? 0.95 : 0.99),
-                            opacity: reduceMotion ? 0 : pillLift,
-                          },
-                        ]}
-                      />
-                      <View style={[styles.selectedPillSheen, { backgroundColor: alpha("#ffffff", state.appearance === "dark" ? 0.28 : 0.62) }]} />
-                    </View>
+                    />
                   </Animated.View>
                 )}
                 {TABS.map((tab, index) => (
@@ -610,6 +604,7 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
               reduceTransparency={reduceTransparency}
               interactive
               glassStyle="regular"
+              tintColor={state.colors.surface}
               style={styles.addButton}
             >
               <ChromeButton
@@ -717,15 +712,6 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     overflow: "hidden",
     borderWidth: StyleSheet.hairlineWidth,
-  },
-  selectedPillSheen: {
-    position: "absolute",
-    left: 8,
-    right: 8,
-    top: 1,
-    height: 10,
-    borderRadius: 8,
-    opacity: 0.7,
   },
   tabPressable: {
     flex: 1,
