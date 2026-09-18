@@ -77,7 +77,18 @@ struct ListWidgetView: View {
       }
     }
     .padding(12)
-    .containerBackground(for: .widget) { Color(.systemBackground) }
+    .widgetCanvas()
+  }
+}
+
+extension View {
+  @ViewBuilder
+  func widgetCanvas() -> some View {
+    if #available(iOS 17.0, *) {
+      self.containerBackground(for: .widget) { Color(.systemBackground) }
+    } else {
+      self.background(Color(.systemBackground))
+    }
   }
 }
 
