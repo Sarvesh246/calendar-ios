@@ -243,16 +243,22 @@ function TabItem({
   symbol,
   state,
   progress,
+  pillFilled,
   onPress,
 }: {
   label: string;
   symbol: SFSymbol;
   state: NativeChromeState;
   progress: number;
+  pillFilled: boolean;
   onPress: () => void;
 }) {
   const neutral = chromeNeutral(state);
   const selected = progress > 0.5;
+  // While the pill is settled it's a solid accent fill, so the glyph riding
+  // on top needs the theme's on-accent ink for contrast. Mid-drag the pill is
+  // a neutral glass blob instead, so the glyph carries the accent color itself.
+  const tint = selected ? (pillFilled ? state.colors.accentInk : state.colors.accent) : neutral.faint;
 
   return (
     <Pressable
@@ -267,12 +273,12 @@ function TabItem({
           name={symbol}
           size={22}
           weight={selected ? "semibold" : "medium"}
-          tintColor={selected ? state.colors.accent : neutral.faint}
+          tintColor={tint}
         />
         <Text
           numberOfLines={1}
           allowFontScaling={false}
-          style={[styles.tabLabel, { color: selected ? state.colors.accent : neutral.faint, fontWeight: selected ? "600" : "500" }]}
+          style={[styles.tabLabel, { color: tint, fontWeight: selected ? "600" : "500" }]}
         >
           {label}
         </Text>
@@ -291,6 +297,9 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
   const [dragging, setDragging] = useState(false);
   const indicatorX = useRef(new Animated.Value(0)).current;
   const askReveal = useRef(new Animated.Value(state.inRoom ? 0 : 1)).current;
+  // 0 = settled (solid accent fill, resting flush in the bar), 1 = picked up
+  // (neutral glass, lifted with a bigger shadow) while a finger holds it.
+  const pillLift = useRef(new Animated.Value(0)).current;
   const dragOrigin = useRef(0);
   const dragPosition = useRef(0);
   const previewIndex = useRef(0);
@@ -329,6 +338,20 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
     });
     return () => indicatorX.removeListener(id);
   }, [indicatorX, segmentWidth]);
+
+  useEffect(() => {
+    if (reduceMotion) {
+      pillLift.setValue(dragging ? 1 : 0);
+      return;
+    }
+    Animated.spring(pillLift, {
+      toValue: dragging ? 1 : 0,
+      stiffness: dragging ? 420 : 300,
+      damping: dragging ? 24 : 22,
+      mass: 0.6,
+      useNativeDriver: false,
+    }).start();
+  }, [dragging, pillLift, reduceMotion]);
 
   useEffect(() => {
     const open = state.inRoom ? 0 : 1;
@@ -511,21 +534,56 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
                     pointerEvents="none"
                     style={[
                       styles.selectedPillTrack,
-                      { width: segmentWidth, transform: [{ translateX: indicatorX }] },
+                      {
+                        width: segmentWidth,
+                        transform: [
+                          { translateX: indicatorX },
+                          {
+                            scale: reduceMotion
+                              ? 1
+                              : pillLift.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] }),
+                          },
+                        ],
+                        shadowOpacity: reduceMotion ? 0.2 : pillLift.interpolate({ inputRange: [0, 1], outputRange: [0.16, 0.4] }),
+                        shadowRadius: reduceMotion ? 8 : pillLift.interpolate({ inputRange: [0, 1], outputRange: [5, 16] }),
+                        shadowOffset: {
+                          width: 0,
+                          height: reduceMotion ? 2 : (pillLift.interpolate({ inputRange: [0, 1], outputRange: [1, 8] }) as unknown as number),
+                        },
+                      },
                     ]}
                   >
                     <View
                       style={[
                         styles.selectedPill,
-                        {
-                          transform: [{ scale: reduceMotion ? 1 : dragging ? 1.03 : 1 }],
-                          backgroundColor: nativeGlass
-                            ? alpha(state.colors.ink, state.appearance === "dark" ? 0.18 : 0.14)
-                            : alpha(state.colors.surface, state.appearance === "dark" ? 0.94 : 0.98),
-                          borderColor: alpha("#ffffff", state.appearance === "dark" ? 0.28 : 0.55),
-                        },
+                        { borderColor: alpha("#ffffff", state.appearance === "dark" ? 0.3 : 0.55) },
                       ]}
                     >
+                      {/* Settled: a solid accent fill says "this is the selected
+                          page." Picked up: it fades to a neutral glass blob so
+                          it reads as lifted, not still committed to a tab. */}
+                      <Animated.View
+                        pointerEvents="none"
+                        style={[
+                          StyleSheet.absoluteFill,
+                          {
+                            backgroundColor: state.colors.accent,
+                            opacity: reduceMotion ? 1 : pillLift.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
+                          },
+                        ]}
+                      />
+                      <Animated.View
+                        pointerEvents="none"
+                        style={[
+                          StyleSheet.absoluteFill,
+                          {
+                            backgroundColor: nativeGlass
+                              ? alpha(state.colors.ink, state.appearance === "dark" ? 0.22 : 0.16)
+                              : alpha(state.colors.surface, state.appearance === "dark" ? 0.95 : 0.99),
+                            opacity: reduceMotion ? 0 : pillLift,
+                          },
+                        ]}
+                      />
                       <View style={[styles.selectedPillSheen, { backgroundColor: alpha("#ffffff", state.appearance === "dark" ? 0.28 : 0.62) }]} />
                     </View>
                   </Animated.View>
@@ -537,6 +595,7 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
                     symbol={tab.symbol}
                     state={state}
                     progress={tabProgress(selection, index)}
+                    pillFilled={!dragging}
                     onPress={() => {
                       if (index !== lastTabIndex.current) void Haptics.selectionAsync();
                       navigateToTab(index);
@@ -651,6 +710,7 @@ const styles = StyleSheet.create({
     top: 4,
     bottom: 4,
     left: 4,
+    shadowColor: "#000",
   },
   selectedPill: {
     flex: 1,
