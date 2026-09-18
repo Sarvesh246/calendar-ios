@@ -72,10 +72,17 @@ const TABS: { label: string; url: string; symbol: SFSymbol }[] = [
 
 const ASK_SLOT = 42;
 
-function chromeColors(state: NativeChromeState) {
+// The theme's own ink/inkFaint are tuned for AA contrast on a flat card
+// surface, not on frosted glass sitting over whatever content is scrolling
+// underneath it. Chrome glyphs need their own fixed, always-legible neutrals
+// — dark charcoal in light mode, near-white in dark mode — independent of
+// how washed-out a given theme's faint tone happens to be. Accent still
+// comes from the theme so the bar stays on-brand per app theme.
+function chromeNeutral(state: NativeChromeState) {
+  const dark = state.appearance === "dark";
   return {
-    ...state.colors,
-    inkFaint: state.colors.inkFaint || state.colors.inkSoft,
+    ink: dark ? "#f5f5f7" : "#1c1c1e",
+    faint: dark ? "rgba(245, 245, 247, 0.7)" : "rgba(28, 28, 30, 0.62)",
   };
 }
 
@@ -145,14 +152,15 @@ function GlassSurface({
   );
 }
 
-function GlassGroup({ children, reduceTransparency, style }: {
+function GlassGroup({ children, reduceTransparency, style, spacing = 18 }: {
   children: ReactNode;
   reduceTransparency: boolean;
   style: ViewStyle | ViewStyle[];
+  spacing?: number;
 }) {
   const nativeGlass = Platform.OS === "ios" && isGlassEffectAPIAvailable() && !reduceTransparency;
   if (nativeGlass) {
-    return <GlassContainer spacing={18} style={style}>{children}</GlassContainer>;
+    return <GlassContainer spacing={spacing} style={style}>{children}</GlassContainer>;
   }
   return <View style={style}>{children}</View>;
 }
@@ -167,6 +175,7 @@ function ChromeButton({
   badge = false,
   large = false,
   ink = false,
+  accent = false,
   onPress,
 }: {
   label: string;
@@ -178,9 +187,10 @@ function ChromeButton({
   badge?: boolean;
   large?: boolean;
   ink?: boolean;
+  accent?: boolean;
   onPress: () => void;
 }) {
-  const colors = chromeColors(state);
+  const neutral = chromeNeutral(state);
   const scale = useRef(new Animated.Value(1)).current;
   const springTo = (toValue: number) => {
     if (reduceMotion) {
@@ -209,15 +219,17 @@ function ChromeButton({
         style={[
           styles.chromeButton,
           large && styles.largeChromeButton,
-          active && highlightActive && { backgroundColor: alpha(state.colors.accent, state.appearance === "dark" ? 0.18 : 0.11) },
+          (accent || (active && highlightActive)) && {
+            backgroundColor: alpha(state.colors.accent, state.appearance === "dark" ? 0.2 : 0.13),
+          },
         ]}
       >
         <View>
           <SymbolView
             name={symbol}
             size={large ? 22 : 18}
-            weight={active ? "semibold" : "medium"}
-            tintColor={active ? state.colors.accent : ink ? state.colors.ink : colors.inkFaint}
+            weight={active || accent ? "semibold" : "medium"}
+            tintColor={active || accent ? state.colors.accent : ink ? neutral.ink : neutral.faint}
           />
           {badge && <View style={[styles.badge, { backgroundColor: state.colors.accent }]} />}
         </View>
@@ -239,7 +251,7 @@ function TabItem({
   progress: number;
   onPress: () => void;
 }) {
-  const colors = chromeColors(state);
+  const neutral = chromeNeutral(state);
   const selected = progress > 0.5;
 
   return (
@@ -255,12 +267,12 @@ function TabItem({
           name={symbol}
           size={22}
           weight={selected ? "semibold" : "medium"}
-          tintColor={selected ? state.colors.accent : colors.inkFaint}
+          tintColor={selected ? state.colors.accent : neutral.faint}
         />
         <Text
           numberOfLines={1}
           allowFontScaling={false}
-          style={[styles.tabLabel, { color: selected ? state.colors.ink : colors.inkFaint, fontWeight: selected ? "600" : "500" }]}
+          style={[styles.tabLabel, { color: selected ? state.colors.accent : neutral.faint, fontWeight: selected ? "600" : "500" }]}
         >
           {label}
         </Text>
@@ -456,7 +468,7 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
             overflow: "hidden",
           }}
         >
-          <ChromeButton label="Ask" symbol="sparkles" state={state} reduceMotion={reduceMotion} onPress={() => onAction({ type: "ask" })} />
+          <ChromeButton label="Ask" symbol="sparkles" state={state} reduceMotion={reduceMotion} accent onPress={() => onAction({ type: "ask" })} />
         </Animated.View>
         <ChromeButton label="Search" symbol="magnifyingglass" state={state} reduceMotion={reduceMotion} onPress={() => onAction({ type: "search" })} />
         <ChromeButton label="Filters" symbol="line.3.horizontal.decrease" state={state} reduceMotion={reduceMotion} badge={state.filtersActive} onPress={() => onAction({ type: "filters" })} />
@@ -476,7 +488,11 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
               },
             ]}
           />
-          <GlassGroup reduceTransparency={reduceTransparency} style={styles.dockStack}>
+          {/* A tighter merge spacing than the row's own gap keeps the tab pill
+              and the add button from fusing into one blob — the default
+              GlassContainer spacing (18) is wider than the 12pt gap between
+              them, which is what was pulling the two into a single shape. */}
+          <GlassGroup reduceTransparency={reduceTransparency} style={styles.dockStack} spacing={8}>
             <GlassSurface
               state={state}
               reduceTransparency={reduceTransparency}
@@ -616,7 +632,7 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 420,
     alignItems: "stretch",
-    gap: 10,
+    gap: 12,
   },
   tabCapsule: {
     flex: 1,
