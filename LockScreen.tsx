@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AccessibilityInfo,
   Animated,
-  Easing,
   Image,
   Platform,
   Pressable,
@@ -27,13 +26,19 @@ type Props = {
 export function LockScreen({ authenticating, onUnlock }: Props) {
   const [label, setLabel] = useState("Unlock with Face ID");
   const [reduceTransparency, setReduceTransparency] = useState(false);
-  const opacity = useRef(new Animated.Value(0)).current;
-  const rise = useRef(new Animated.Value(10)).current;
+  const [reduceMotion, setReduceMotion] = useState(false);
+  const rise = useRef(new Animated.Value(18)).current;
+  const unlockScale = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     void AccessibilityInfo.isReduceTransparencyEnabled().then(setReduceTransparency);
-    const sub = AccessibilityInfo.addEventListener("reduceTransparencyChanged", setReduceTransparency);
-    return () => sub.remove();
+    void AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
+    const transparencySub = AccessibilityInfo.addEventListener("reduceTransparencyChanged", setReduceTransparency);
+    const motionSub = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduceMotion);
+    return () => {
+      transparencySub.remove();
+      motionSub.remove();
+    };
   }, []);
 
   useEffect(() => {
@@ -54,39 +59,40 @@ export function LockScreen({ authenticating, onUnlock }: Props) {
   }, []);
 
   useEffect(() => {
-    let reduced = false;
     void AccessibilityInfo.isReduceMotionEnabled().then((value) => {
-      reduced = value;
       if (value) {
-        opacity.setValue(1);
         rise.setValue(0);
         return;
       }
-      Animated.parallel([
-        Animated.timing(opacity, {
-          toValue: 1,
-          duration: 420,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.timing(rise, {
-          toValue: 0,
-          duration: 480,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-      ]).start();
+      Animated.spring(rise, {
+        toValue: 0,
+        stiffness: 150,
+        damping: 16,
+        mass: 0.9,
+        useNativeDriver: true,
+      }).start();
     });
-    return () => {
-      if (!reduced) opacity.stopAnimation();
-    };
-  }, [opacity, rise]);
+    return () => rise.stopAnimation();
+  }, [rise]);
 
   const markStyle = useMemo(
-    () => [{ opacity, transform: [{ translateY: rise }] }],
-    [opacity, rise]
+    () => [{ transform: [{ translateY: rise }] }],
+    [rise]
   );
   const nativeGlass = Platform.OS === "ios" && isGlassEffectAPIAvailable() && !reduceTransparency;
+  const springUnlock = (toValue: number) => {
+    if (reduceMotion) {
+      unlockScale.setValue(1);
+      return;
+    }
+    Animated.spring(unlockScale, {
+      toValue,
+      stiffness: toValue < 1 ? 320 : 210,
+      damping: toValue < 1 ? 24 : 12,
+      mass: 0.7,
+      useNativeDriver: true,
+    }).start();
+  };
 
   return (
     <View style={styles.overlay} accessibilityViewIsModal>
@@ -94,7 +100,7 @@ export function LockScreen({ authenticating, onUnlock }: Props) {
         <Animated.View style={[styles.stage, markStyle]}>
           <View pointerEvents="none" style={styles.bloom} />
           {nativeGlass ? (
-            <GlassView colorScheme="dark" glassEffectStyle="regular" style={styles.plate}>
+            <GlassView colorScheme="dark" glassEffectStyle="clear" style={styles.plate}>
               <Image source={require("./assets/icon.png")} style={styles.mark} accessibilityIgnoresInvertColors />
             </GlassView>
           ) : (
@@ -108,17 +114,21 @@ export function LockScreen({ authenticating, onUnlock }: Props) {
 
         <View style={styles.actions}>
           {nativeGlass ? (
-            <GlassView colorScheme="dark" glassEffectStyle="regular" tintColor="#0a84ff" style={styles.button}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={label}
-                disabled={authenticating}
-                onPress={onUnlock}
-                style={({ pressed }) => [styles.buttonPressable, pressed && styles.buttonPressed, authenticating && styles.buttonBusy]}
-              >
-                <Text style={styles.buttonText}>{authenticating ? "Unlocking…" : label}</Text>
-              </Pressable>
-            </GlassView>
+            <Animated.View style={[styles.buttonFrame, { transform: [{ scale: unlockScale }] }]}>
+              <GlassView colorScheme="dark" glassEffectStyle="regular" isInteractive tintColor="#0878d9" style={styles.button}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={label}
+                  disabled={authenticating}
+                  onPress={onUnlock}
+                  onPressIn={() => springUnlock(0.965)}
+                  onPressOut={() => springUnlock(1)}
+                  style={[styles.buttonPressable, authenticating && styles.buttonBusy]}
+                >
+                  <Text style={styles.buttonText}>{authenticating ? "Unlocking…" : label}</Text>
+                </Pressable>
+              </GlassView>
+            </Animated.View>
           ) : (
             <Pressable
               accessibilityRole="button"
@@ -139,8 +149,9 @@ export function LockScreen({ authenticating, onUnlock }: Props) {
 
 const styles = StyleSheet.create({
   overlay: {
-    position: "absolute",
-    inset: 0,
+    flex: 1,
+    width: "100%",
+    height: "100%",
     backgroundColor: "#07070a",
   },
   safe: {
@@ -210,6 +221,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 26,
     overflow: "hidden",
+  },
+  buttonFrame: {
+    width: "100%",
+    minHeight: 52,
   },
   buttonFallback: {
     backgroundColor: "#0a84ff",

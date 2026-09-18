@@ -105,43 +105,65 @@ export default function App() {
   const appLock = useRef<AppLockState>(DEFAULT_APP_LOCK);
   const [lockReady, setLockReady] = useState(false);
   const [locked, setLocked] = useState(false);
+  const [privacyCovered, setPrivacyCovered] = useState(false);
   const [authenticating, setAuthenticating] = useState(false);
+  const [appIsActive, setAppIsActive] = useState(AppState.currentState === "active");
   const backgroundedAt = useRef<number | null>(null);
+  const authAttemptedForLock = useRef(false);
+  const authenticationInFlight = useRef(false);
 
   useEffect(() => {
     void readAppLock().then((state) => {
       appLock.current = state;
+      authAttemptedForLock.current = false;
       setLocked(state.enabled);
       setLockReady(true);
     });
   }, []);
 
   const tryUnlock = useCallback(async () => {
+    authenticationInFlight.current = true;
     setAuthenticating(true);
     try {
-      const enrolled = await LocalAuthentication.isEnrolledAsync();
-      if (!enrolled) {
-        setLocked(false);
-        return;
-      }
       const result = await LocalAuthentication.authenticateAsync({
         promptMessage: "Unlock Datebook",
         cancelLabel: "Cancel",
+        fallbackLabel: "Use Passcode",
+        disableDeviceFallback: false,
       });
       if (result.success) setLocked(false);
+    } catch {
+      // Keep the native lock boundary in place; the visible unlock button lets
+      // the user retry if iOS temporarily rejects or interrupts the request.
     } finally {
+      authenticationInFlight.current = false;
       setAuthenticating(false);
     }
   }, []);
 
   useEffect(() => {
-    if (lockReady && locked && !authenticating) void tryUnlock();
-  }, [lockReady, locked, authenticating, tryUnlock]);
+    if (
+      lockReady &&
+      locked &&
+      !authenticating &&
+      !authAttemptedForLock.current &&
+      appIsActive
+    ) {
+      authAttemptedForLock.current = true;
+      void tryUnlock();
+    }
+  }, [lockReady, locked, authenticating, appIsActive, tryUnlock]);
 
   useEffect(() => {
     const sub = AppState.addEventListener("change", (next) => {
+      setAppIsActive(next === "active");
+      // The system Face ID/passcode sheet itself produces inactive/active
+      // transitions. They are not real backgrounding and must not restart an
+      // immediate-lock cycle after a successful authentication.
+      if (authenticationInFlight.current) return;
       if (next === "background" || next === "inactive") {
         backgroundedAt.current = Date.now();
+        if (appLock.current.enabled) setPrivacyCovered(true);
         return;
       }
       if (next !== "active") return;
@@ -150,12 +172,23 @@ export default function App() {
       backgroundedAt.current = null;
       // `since === null` means this "active" is the cold-launch transition,
       // already handled by the readAppLock effect above.
-      if (!state.enabled || since === null) return;
+      if (!state.enabled || since === null) {
+        setPrivacyCovered(false);
+        return;
+      }
       // -1 means "only when the app was fully closed" — backgrounding alone
       // never re-locks it.
-      if (state.requireAfterMinutes === -1) return;
+      if (state.requireAfterMinutes === -1) {
+        setPrivacyCovered(false);
+        return;
+      }
       const elapsedMinutes = (Date.now() - since) / 60000;
-      if (elapsedMinutes >= state.requireAfterMinutes) setLocked(true);
+      if (elapsedMinutes >= state.requireAfterMinutes) {
+        authAttemptedForLock.current = false;
+        setLocked(true);
+      } else {
+        setPrivacyCovered(false);
+      }
     });
     return () => sub.remove();
   }, []);
@@ -238,6 +271,11 @@ export default function App() {
         };
         appLock.current = next;
         void writeAppLock(next);
+        if (!next.enabled) {
+          authAttemptedForLock.current = false;
+          setLocked(false);
+          setPrivacyCovered(false);
+        }
         return;
       }
 
@@ -346,6 +384,20 @@ export default function App() {
     );
   }
 
+  // A locked app is a real render boundary, not a visual overlay. The WebView
+  // does not exist until authentication succeeds, so protected content cannot
+  // flash through behind the Face ID sheet or appear if a layout style fails.
+  if (locked) {
+    return (
+      <SafeAreaProvider>
+        <View style={styles.container}>
+          <StatusBar style="light" />
+          <LockScreen authenticating={authenticating} onUnlock={() => void tryUnlock()} />
+        </View>
+      </SafeAreaProvider>
+    );
+  }
+
   return (
     <SafeAreaProvider>
       <View style={styles.container}>
@@ -382,7 +434,11 @@ export default function App() {
             }}
           />
         )}
-        {locked && <LockScreen authenticating={authenticating} onUnlock={() => void tryUnlock()} />}
+        {privacyCovered && (
+          <View pointerEvents="none" style={styles.privacyCover}>
+            <StatusBar style="light" />
+          </View>
+        )}
       </View>
     </SafeAreaProvider>
   );
@@ -395,6 +451,14 @@ const styles = StyleSheet.create({
   },
   webview: {
     flex: 1,
+    backgroundColor: "#07070a",
+  },
+  privacyCover: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     backgroundColor: "#07070a",
   },
 });
