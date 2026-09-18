@@ -41,13 +41,10 @@ class ShareViewController: UIViewController {
       UserDefaults(suiteName: "group.com.sarveshjagtap.datebook")?.set(raw, forKey: "datebook.inbox")
     }
     if let url = URL(string: "datebook://open?intent=inbox") {
-      var responder: UIResponder? = self
-      while let r = responder {
-        if let app = r as? UIApplication {
-          app.open(url)
-          break
+      await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+        extensionContext?.open(url) { _ in
+          cont.resume()
         }
-        responder = r.next
       }
     }
     extensionContext?.completeRequest(returningItems: nil)
