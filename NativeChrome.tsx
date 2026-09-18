@@ -1,14 +1,17 @@
-import { GlassView, isGlassEffectAPIAvailable } from "expo-glass-effect";
+import { GlassContainer, GlassView, isGlassEffectAPIAvailable } from "expo-glass-effect";
+import * as Haptics from "expo-haptics";
 import { SymbolView, type SFSymbol } from "expo-symbols";
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   AccessibilityInfo,
+  Animated,
   Keyboard,
+  PanResponder,
   Platform,
   Pressable,
   StyleSheet,
-  Text,
   View,
+  type LayoutChangeEvent,
   type ViewStyle,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -78,20 +81,25 @@ function GlassSurface({
   reduceTransparency,
   style,
   tintColor,
+  glassStyle = "regular",
+  interactive = false,
 }: {
   children: ReactNode;
   state: NativeChromeState;
   reduceTransparency: boolean;
   style: ViewStyle | ViewStyle[];
   tintColor?: string;
+  glassStyle?: "clear" | "regular";
+  interactive?: boolean;
 }) {
   const nativeGlass = Platform.OS === "ios" && isGlassEffectAPIAvailable() && !reduceTransparency;
   if (nativeGlass) {
     return (
       <GlassView
         colorScheme={state.appearance}
-        glassEffectStyle="regular"
+        glassEffectStyle={glassStyle}
         tintColor={tintColor}
+        isInteractive={interactive}
         style={style}
       >
         {children}
@@ -104,8 +112,10 @@ function GlassSurface({
         style,
         styles.fallbackSurface,
         {
-          backgroundColor: alpha(state.colors.surface, reduceTransparency ? 0.98 : 0.9),
-          borderColor: alpha(state.colors.ink, state.appearance === "dark" ? 0.15 : 0.1),
+          backgroundColor: tintColor
+            ? alpha(tintColor, reduceTransparency ? 0.98 : 0.88)
+            : alpha(state.colors.surface, reduceTransparency ? 0.98 : 0.92),
+          borderColor: alpha(state.colors.ink, state.appearance === "dark" ? 0.16 : 0.1),
         },
       ]}
     >
@@ -114,64 +124,108 @@ function GlassSurface({
   );
 }
 
+function GlassGroup({ children, reduceTransparency, style }: {
+  children: ReactNode;
+  reduceTransparency: boolean;
+  style: ViewStyle | ViewStyle[];
+}) {
+  const nativeGlass = Platform.OS === "ios" && isGlassEffectAPIAvailable() && !reduceTransparency;
+  if (nativeGlass) {
+    return <GlassContainer spacing={12} style={style}>{children}</GlassContainer>;
+  }
+  return <View style={style}>{children}</View>;
+}
+
 function ChromeButton({
   label,
   symbol,
   state,
+  reduceMotion,
   active = false,
-  showLabel = false,
+  highlightActive = true,
   badge = false,
+  large = false,
   onPress,
 }: {
   label: string;
   symbol: SFSymbol;
   state: NativeChromeState;
+  reduceMotion: boolean;
   active?: boolean;
-  showLabel?: boolean;
+  highlightActive?: boolean;
   badge?: boolean;
+  large?: boolean;
   onPress: () => void;
 }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const springTo = (toValue: number) => {
+    if (reduceMotion) {
+      scale.setValue(1);
+      return;
+    }
+    Animated.spring(scale, {
+      toValue,
+      stiffness: toValue < 1 ? 380 : 235,
+      damping: toValue < 1 ? 26 : 13,
+      mass: 0.65,
+      useNativeDriver: true,
+    }).start();
+  };
+
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ selected: active }}
-      hitSlop={4}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.chromeButton,
-        showLabel && styles.chromeButtonLabelled,
-        active && { backgroundColor: alpha(state.colors.accent, state.appearance === "dark" ? 0.22 : 0.14) },
-        pressed && styles.pressed,
-      ]}
-    >
-      <View>
-        <SymbolView
-          name={symbol}
-          size={showLabel ? 17 : 18}
-          weight={active ? "semibold" : "medium"}
-          tintColor={active ? state.colors.accent : state.colors.inkSoft}
-        />
-        {badge && <View style={[styles.badge, { backgroundColor: state.colors.accent }]} />}
-      </View>
-      {showLabel && (
-        <Text style={[styles.compactLabel, { color: active ? state.colors.accent : state.colors.ink }]}>
-          {label}
-        </Text>
-      )}
-    </Pressable>
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityState={{ selected: active }}
+        hitSlop={5}
+        onPress={onPress}
+        onPressIn={() => springTo(0.9)}
+        onPressOut={() => springTo(1)}
+        style={[
+          styles.chromeButton,
+          large && styles.largeChromeButton,
+          active && highlightActive && { backgroundColor: alpha(state.colors.accent, state.appearance === "dark" ? 0.18 : 0.11) },
+        ]}
+      >
+        <View>
+          <SymbolView
+            name={symbol}
+            size={large ? 22 : 18}
+            weight={active ? "semibold" : "medium"}
+            tintColor={active ? state.colors.accent : state.colors.inkSoft}
+          />
+          {badge && <View style={[styles.badge, { backgroundColor: state.colors.accent }]} />}
+        </View>
+      </Pressable>
+    </Animated.View>
   );
 }
 
 export function NativeChrome({ state, focusRunning, onAction }: Props) {
   const insets = useSafeAreaInsets();
   const [reduceTransparency, setReduceTransparency] = useState(false);
+  const [reduceMotion, setReduceMotion] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [tabBarWidth, setTabBarWidth] = useState(0);
+  const indicatorX = useRef(new Animated.Value(0)).current;
+  const dragOrigin = useRef(0);
+  const dragPosition = useRef(0);
+  const previewIndex = useRef(0);
+  const lastTabIndex = useRef(0);
+
+  const segmentWidth = tabBarWidth > 0 ? tabBarWidth / TABS.length : 0;
+  const routeIndex = TABS.findIndex((tab) => tab.url === state.pathname);
 
   useEffect(() => {
     void AccessibilityInfo.isReduceTransparencyEnabled().then(setReduceTransparency);
-    const sub = AccessibilityInfo.addEventListener("reduceTransparencyChanged", setReduceTransparency);
-    return () => sub.remove();
+    void AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
+    const transparencySub = AccessibilityInfo.addEventListener("reduceTransparencyChanged", setReduceTransparency);
+    const motionSub = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduceMotion);
+    return () => {
+      transparencySub.remove();
+      motionSub.remove();
+    };
   }, []);
 
   useEffect(() => {
@@ -183,45 +237,86 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
     };
   }, []);
 
+  const settleIndicator = useCallback((index: number, velocity = 0) => {
+    if (!segmentWidth) return;
+    const target = index * segmentWidth;
+    dragPosition.current = target;
+    if (reduceMotion) {
+      indicatorX.setValue(target);
+      return;
+    }
+    Animated.spring(indicatorX, {
+      toValue: target,
+      velocity,
+      stiffness: 265,
+      damping: 20,
+      mass: 0.72,
+      useNativeDriver: true,
+    }).start();
+  }, [indicatorX, reduceMotion, segmentWidth]);
+
+  useEffect(() => {
+    if (routeIndex < 0) return;
+    lastTabIndex.current = routeIndex;
+    previewIndex.current = routeIndex;
+    settleIndicator(routeIndex);
+  }, [routeIndex, settleIndicator]);
+
+  const navigateToTab = useCallback((index: number) => {
+    const tab = TABS[index];
+    if (!tab) return;
+    lastTabIndex.current = index;
+    previewIndex.current = index;
+    settleIndicator(index);
+    if (state.pathname !== tab.url) onAction({ type: "navigate", url: tab.url });
+  }, [onAction, settleIndicator, state.pathname]);
+
+  const panResponder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => false,
+    onMoveShouldSetPanResponder: (_, gesture) =>
+      segmentWidth > 0 && Math.abs(gesture.dx) > 5 && Math.abs(gesture.dx) > Math.abs(gesture.dy),
+    onMoveShouldSetPanResponderCapture: (_, gesture) =>
+      segmentWidth > 0 && Math.abs(gesture.dx) > 5 && Math.abs(gesture.dx) > Math.abs(gesture.dy),
+    onPanResponderGrant: () => {
+      indicatorX.stopAnimation((value) => {
+        dragOrigin.current = value;
+        dragPosition.current = value;
+      });
+    },
+    onPanResponderMove: (_, gesture) => {
+      const max = segmentWidth * (TABS.length - 1);
+      const next = Math.max(0, Math.min(max, dragOrigin.current + gesture.dx));
+      dragPosition.current = next;
+      indicatorX.setValue(next);
+      const nextIndex = Math.round(next / segmentWidth);
+      if (nextIndex !== previewIndex.current) {
+        previewIndex.current = nextIndex;
+        void Haptics.selectionAsync();
+      }
+    },
+    onPanResponderRelease: (_, gesture) => {
+      const max = segmentWidth * (TABS.length - 1);
+      const projected = Math.max(0, Math.min(max, dragPosition.current + gesture.vx * 34));
+      navigateToTab(Math.round(projected / segmentWidth));
+    },
+    onPanResponderTerminate: () => settleIndicator(lastTabIndex.current),
+  }), [indicatorX, navigateToTab, segmentWidth, settleIndicator]);
+
+  const onTabBarLayout = (event: LayoutChangeEvent) => setTabBarWidth(event.nativeEvent.layout.width);
+
   if (!state.ready || state.obscured) return null;
 
   if (state.focusMode) {
     return (
       <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-        <GlassSurface
-          state={state}
-          reduceTransparency={reduceTransparency}
-          style={[styles.focusExit, { top: insets.top + 10 }]}
-        >
-          <ChromeButton
-            label="Exit Focus"
-            symbol="xmark"
-            state={state}
-            showLabel
-            onPress={() => onAction({ type: "exitFocus" })}
-          />
+        <GlassSurface state={state} reduceTransparency={reduceTransparency} interactive glassStyle="clear" style={[styles.focusExit, { top: insets.top + 10 }]}>
+          <ChromeButton label="Exit Focus" symbol="xmark" state={state} reduceMotion={reduceMotion} onPress={() => onAction({ type: "exitFocus" })} />
         </GlassSurface>
         {!keyboardVisible && (
-          <GlassSurface
-            state={state}
-            reduceTransparency={reduceTransparency}
-            style={[styles.focusActions, { bottom: insets.bottom + 9 }]}
-          >
-            <ChromeButton
-              label={focusRunning ? "Pause" : "Resume"}
-              symbol={focusRunning ? "pause.fill" : "play.fill"}
-              state={state}
-              showLabel
-              onPress={() => onAction({ type: focusRunning ? "pauseFocus" : "resumeFocus" })}
-            />
+          <GlassSurface state={state} reduceTransparency={reduceTransparency} interactive style={[styles.focusActions, { bottom: insets.bottom + 9 }]}>
+            <ChromeButton label={focusRunning ? "Pause" : "Resume"} symbol={focusRunning ? "pause.fill" : "play.fill"} state={state} reduceMotion={reduceMotion} large onPress={() => onAction({ type: focusRunning ? "pauseFocus" : "resumeFocus" })} />
             <View style={[styles.divider, { backgroundColor: alpha(state.colors.ink, 0.12) }]} />
-            <ChromeButton
-              label="End"
-              symbol="stop.fill"
-              state={state}
-              showLabel
-              onPress={() => onAction({ type: "endFocus" })}
-            />
+            <ChromeButton label="End Focus" symbol="stop.fill" state={state} reduceMotion={reduceMotion} large onPress={() => onAction({ type: "endFocus" })} />
           </GlassSurface>
         )}
       </View>
@@ -230,75 +325,37 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
 
   return (
     <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-      <GlassSurface
-        state={state}
-        reduceTransparency={reduceTransparency}
-        style={[styles.headerCluster, { top: insets.top + 9 }]}
-      >
-        {!state.inRoom && (
-          <ChromeButton
-            label="Ask"
-            symbol="sparkles"
-            state={state}
-            showLabel
-            onPress={() => onAction({ type: "ask" })}
-          />
-        )}
-        <ChromeButton label="Search" symbol="magnifyingglass" state={state} onPress={() => onAction({ type: "search" })} />
-        <ChromeButton
-          label="Filters"
-          symbol="line.3.horizontal.decrease"
-          state={state}
-          badge={state.filtersActive}
-          onPress={() => onAction({ type: "filters" })}
-        />
-        <ChromeButton
-          label="Schedule"
-          symbol="calendar.badge.clock"
-          state={state}
-          active={state.pathname === "/schedule"}
-          onPress={() => onAction({ type: "navigate", url: "/schedule" })}
-        />
-        <ChromeButton
-          label="Settings"
-          symbol="gearshape"
-          state={state}
-          active={state.pathname === "/settings"}
-          onPress={() => onAction({ type: "navigate", url: "/settings" })}
-        />
+      <GlassSurface state={state} reduceTransparency={reduceTransparency} interactive glassStyle="clear" style={[styles.headerCluster, { top: insets.top + 9 }]}>
+        {!state.inRoom && <ChromeButton label="Ask" symbol="sparkles" state={state} reduceMotion={reduceMotion} onPress={() => onAction({ type: "ask" })} />}
+        <ChromeButton label="Search" symbol="magnifyingglass" state={state} reduceMotion={reduceMotion} onPress={() => onAction({ type: "search" })} />
+        <ChromeButton label="Filters" symbol="line.3.horizontal.decrease" state={state} reduceMotion={reduceMotion} badge={state.filtersActive} onPress={() => onAction({ type: "filters" })} />
+        <ChromeButton label="Schedule" symbol="calendar.badge.clock" state={state} reduceMotion={reduceMotion} active={state.pathname === "/schedule"} onPress={() => onAction({ type: "navigate", url: "/schedule" })} />
+        <ChromeButton label="Settings" symbol="gearshape" state={state} reduceMotion={reduceMotion} active={state.pathname === "/settings"} onPress={() => onAction({ type: "navigate", url: "/settings" })} />
       </GlassSurface>
 
       {!keyboardVisible && (
-        <View pointerEvents="box-none" style={[styles.bottomRow, { bottom: insets.bottom + 9 }]}>
-          <GlassSurface state={state} reduceTransparency={reduceTransparency} style={styles.tabBar}>
-            {TABS.map((tab) => (
-              <ChromeButton
-                key={tab.url}
-                label={tab.label}
-                symbol={tab.symbol}
-                state={state}
-                active={state.pathname === tab.url}
-                showLabel
-                onPress={() => onAction({ type: "navigate", url: tab.url })}
-              />
-            ))}
+        <GlassGroup reduceTransparency={reduceTransparency} style={[styles.bottomRow, { bottom: insets.bottom + 9 }]}>
+          <GlassSurface state={state} reduceTransparency={reduceTransparency} interactive style={styles.tabBar}>
+            <View style={styles.tabBarContents} onLayout={onTabBarLayout} {...panResponder.panHandlers}>
+              {segmentWidth > 0 && (
+                <Animated.View pointerEvents="none" style={[styles.indicatorFrame, { width: segmentWidth, transform: [{ translateX: indicatorX }] }]}>
+                  <GlassSurface state={state} reduceTransparency={reduceTransparency} glassStyle="clear" tintColor={alpha(state.colors.accent, state.appearance === "dark" ? 0.42 : 0.28)} style={styles.activeIndicator}>
+                    <View />
+                  </GlassSurface>
+                </Animated.View>
+              )}
+              {TABS.map((tab, index) => (
+                <View key={tab.url} style={styles.tabSlot}>
+                  <ChromeButton label={tab.label} symbol={tab.symbol} state={state} reduceMotion={reduceMotion} active={routeIndex === index} highlightActive={false} large onPress={() => navigateToTab(index)} />
+                </View>
+              ))}
+            </View>
           </GlassSurface>
-          <GlassSurface
-            state={state}
-            reduceTransparency={reduceTransparency}
-            tintColor={state.colors.accent}
-            style={[styles.addButton, { borderColor: alpha(state.colors.accentInk, 0.18) }]}
-          >
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Add item"
-              onPress={() => onAction({ type: "compose" })}
-              style={({ pressed }) => [styles.addPressable, pressed && styles.pressed]}
-            >
-              <SymbolView name="plus" size={24} weight="semibold" tintColor={state.colors.accentInk} />
-            </Pressable>
+
+          <GlassSurface state={state} reduceTransparency={reduceTransparency} interactive tintColor={state.colors.accent} style={[styles.addButton, { backgroundColor: alpha(state.colors.accent, 0.42), borderColor: alpha(state.colors.accentInk, 0.24), shadowColor: state.colors.accent }]}>
+            <ChromeButton label="Add item" symbol="plus" state={{ ...state, colors: { ...state.colors, inkSoft: state.colors.accentInk } }} reduceMotion={reduceMotion} large onPress={() => onAction({ type: "compose" })} />
           </GlassSurface>
-        </View>
+        </GlassGroup>
       )}
     </View>
   );
@@ -308,13 +365,9 @@ const styles = StyleSheet.create({
   fallbackSurface: {
     borderWidth: StyleSheet.hairlineWidth,
     shadowColor: "#000",
-    shadowOpacity: 0.24,
+    shadowOpacity: 0.22,
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 9 },
-  },
-  pressed: {
-    opacity: 0.62,
-    transform: [{ scale: 0.96 }],
   },
   headerCluster: {
     position: "absolute",
@@ -328,88 +381,100 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   chromeButton: {
-    minWidth: 42,
+    width: 42,
     height: 42,
-    paddingHorizontal: 9,
     borderRadius: 21,
-    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 5,
   },
-  chromeButtonLabelled: {
-    minWidth: 52,
-    paddingHorizontal: 10,
-  },
-  compactLabel: {
-    fontSize: 12,
-    lineHeight: 15,
-    fontWeight: "600",
-    letterSpacing: -0.1,
+  largeChromeButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
   },
   badge: {
     position: "absolute",
     width: 6,
     height: 6,
     borderRadius: 3,
-    right: -2,
-    top: -2,
+    right: -3,
+    top: -3,
   },
   bottomRow: {
     position: "absolute",
     left: 12,
     right: 12,
-    height: 58,
+    height: 60,
     flexDirection: "row",
     gap: 10,
   },
   tabBar: {
     flex: 1,
-    height: 58,
+    height: 60,
+    borderRadius: 30,
+    overflow: "hidden",
+  },
+  tabBarContents: {
+    flex: 1,
+    margin: 4,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-around",
-    paddingHorizontal: 4,
-    borderRadius: 29,
-    overflow: "hidden",
   },
-  addButton: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: "hidden",
-  },
-  addPressable: {
+  tabSlot: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 29,
+    zIndex: 2,
+  },
+  indicatorFrame: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    paddingHorizontal: 2,
+  },
+  activeIndicator: {
+    flex: 1,
+    borderRadius: 26,
+    overflow: "hidden",
+  },
+  addButton: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    shadowOpacity: 0.34,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
   },
   focusExit: {
     position: "absolute",
     right: 14,
-    height: 46,
-    borderRadius: 23,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     overflow: "hidden",
-    paddingHorizontal: 2,
-    paddingVertical: 2,
+    alignItems: "center",
+    justifyContent: "center",
   },
   focusActions: {
     position: "absolute",
     left: "50%",
-    width: 210,
-    marginLeft: -105,
-    height: 52,
-    borderRadius: 26,
+    width: 126,
+    marginLeft: -63,
+    height: 58,
+    borderRadius: 29,
     overflow: "hidden",
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 4,
-    paddingVertical: 3,
+    justifyContent: "space-around",
+    paddingHorizontal: 6,
   },
   divider: {
     width: StyleSheet.hairlineWidth,
-    height: 24,
+    height: 25,
   },
 });
