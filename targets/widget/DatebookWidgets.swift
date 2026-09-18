@@ -248,11 +248,7 @@ struct DatebookWidgetBundle: WidgetBundle {
     UpNextWidget()
     AssignmentsWidget()
     ClassesWidget()
-    if #available(iOS 18.0, *) {
-      DatebookLiveActivityModern()
-    } else {
-      DatebookLiveActivity()
-    }
+    DatebookLiveActivity()
   }
 }
 
