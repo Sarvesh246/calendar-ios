@@ -132,12 +132,13 @@ async function upsertCalendar(snapshot: NativeSnapshot) {
   if (perm.status !== "granted") return;
   const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
   let cal = calendars.find((c) => c.title === CAL_NAME && c.allowsModifications);
+  let calendarId = cal?.id;
   if (!cal) {
     const source =
       calendars.find((c) => c.source?.name === "Default")?.source ??
       calendars.find((c) => c.allowsModifications)?.source;
     if (!source) return;
-    const id = await Calendar.createCalendarAsync({
+    calendarId = await Calendar.createCalendarAsync({
       title: CAL_NAME,
       color: "#0A84FF",
       entityType: Calendar.EntityTypes.EVENT,
@@ -147,11 +148,11 @@ async function upsertCalendar(snapshot: NativeSnapshot) {
       ownerAccount: "Datebook",
       accessLevel: Calendar.CalendarAccessLevel.OWNER,
     });
-    cal = { id } as Calendar.Calendar;
   }
+  if (!calendarId) return;
   const start = new Date(Date.now() - 24 * 60 * 60_000);
   const end = new Date(Date.now() + 14 * 24 * 60 * 60_000);
-  const existing = await Calendar.getEventsAsync([cal.id], start, end);
+  const existing = await Calendar.getEventsAsync([calendarId], start, end);
   const byNote = new Map(existing.map((e) => [e.notes ?? "", e]));
   for (const ev of snapshot.calendarEvents ?? []) {
     const notes = ev.notes ?? `datebook:${ev.id}`;
@@ -163,10 +164,10 @@ async function upsertCalendar(snapshot: NativeSnapshot) {
       allDay: ev.allDay,
       location: ev.location,
       notes,
-      calendarId: cal.id,
+      calendarId,
     };
     if (found) await Calendar.updateEventAsync(found.id, details);
-    else await Calendar.createEventAsync(cal.id, details);
+    else await Calendar.createEventAsync(calendarId, details);
   }
 }
 

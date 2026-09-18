@@ -4,6 +4,7 @@ import {
   Animated,
   Easing,
   Image,
+  Platform,
   Pressable,
   SafeAreaView,
   StyleSheet,
@@ -11,6 +12,7 @@ import {
   View,
 } from "react-native";
 import * as LocalAuthentication from "expo-local-authentication";
+import { GlassView, isGlassEffectAPIAvailable } from "expo-glass-effect";
 
 type Props = {
   authenticating: boolean;
@@ -24,8 +26,15 @@ type Props = {
  */
 export function LockScreen({ authenticating, onUnlock }: Props) {
   const [label, setLabel] = useState("Unlock with Face ID");
+  const [reduceTransparency, setReduceTransparency] = useState(false);
   const opacity = useRef(new Animated.Value(0)).current;
   const rise = useRef(new Animated.Value(10)).current;
+
+  useEffect(() => {
+    void AccessibilityInfo.isReduceTransparencyEnabled().then(setReduceTransparency);
+    const sub = AccessibilityInfo.addEventListener("reduceTransparencyChanged", setReduceTransparency);
+    return () => sub.remove();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -77,33 +86,50 @@ export function LockScreen({ authenticating, onUnlock }: Props) {
     () => [{ opacity, transform: [{ translateY: rise }] }],
     [opacity, rise]
   );
+  const nativeGlass = Platform.OS === "ios" && isGlassEffectAPIAvailable() && !reduceTransparency;
 
   return (
     <View style={styles.overlay} accessibilityViewIsModal>
       <SafeAreaView style={styles.safe}>
         <Animated.View style={[styles.stage, markStyle]}>
           <View pointerEvents="none" style={styles.bloom} />
-          <View style={styles.plate}>
-            <Image source={require("./assets/icon.png")} style={styles.mark} accessibilityIgnoresInvertColors />
-          </View>
+          {nativeGlass ? (
+            <GlassView colorScheme="dark" glassEffectStyle="regular" style={styles.plate}>
+              <Image source={require("./assets/icon.png")} style={styles.mark} accessibilityIgnoresInvertColors />
+            </GlassView>
+          ) : (
+            <View style={styles.plate}>
+              <Image source={require("./assets/icon.png")} style={styles.mark} accessibilityIgnoresInvertColors />
+            </View>
+          )}
           <Text style={styles.wordmark}>Datebook</Text>
           <Text style={styles.kicker}>Locked</Text>
         </Animated.View>
 
         <View style={styles.actions}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={label}
-            disabled={authenticating}
-            onPress={onUnlock}
-            style={({ pressed }) => [
-              styles.button,
-              pressed && styles.buttonPressed,
-              authenticating && styles.buttonBusy,
-            ]}
-          >
-            <Text style={styles.buttonText}>{authenticating ? "Unlocking…" : label}</Text>
-          </Pressable>
+          {nativeGlass ? (
+            <GlassView colorScheme="dark" glassEffectStyle="regular" tintColor="#0a84ff" style={styles.button}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={label}
+                disabled={authenticating}
+                onPress={onUnlock}
+                style={({ pressed }) => [styles.buttonPressable, pressed && styles.buttonPressed, authenticating && styles.buttonBusy]}
+              >
+                <Text style={styles.buttonText}>{authenticating ? "Unlocking…" : label}</Text>
+              </Pressable>
+            </GlassView>
+          ) : (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={label}
+              disabled={authenticating}
+              onPress={onUnlock}
+              style={({ pressed }) => [styles.button, styles.buttonFallback, pressed && styles.buttonPressed, authenticating && styles.buttonBusy]}
+            >
+              <Text style={styles.buttonText}>{authenticating ? "Unlocking…" : label}</Text>
+            </Pressable>
+          )}
           <Text style={styles.hint}>Your calendar stays private until you unlock.</Text>
         </View>
       </SafeAreaView>
@@ -113,7 +139,8 @@ export function LockScreen({ authenticating, onUnlock }: Props) {
 
 const styles = StyleSheet.create({
   overlay: {
-    ...StyleSheet.absoluteFillObject,
+    position: "absolute",
+    inset: 0,
     backgroundColor: "#07070a",
   },
   safe: {
@@ -182,7 +209,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 26,
+    overflow: "hidden",
+  },
+  buttonFallback: {
     backgroundColor: "#0a84ff",
+  },
+  buttonPressable: {
+    flex: 1,
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 26,
   },
   buttonPressed: {
     opacity: 0.88,
