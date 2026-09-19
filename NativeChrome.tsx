@@ -519,66 +519,86 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
               and the add button from fusing into one blob — the default
               GlassContainer spacing (18) is wider than the 12pt gap between
               them, which is what was pulling the two into a single shape. */}
-          <GlassGroup reduceTransparency={reduceTransparency} style={styles.dockStack} spacing={8}>
-            <GlassSurface
-              state={state}
-              reduceTransparency={reduceTransparency}
-              glassStyle="regular"
-              tintColor={state.colors.surface}
-              style={styles.tabCapsule}
-            >
+          <View style={styles.dockStack}>
+            <GlassGroup reduceTransparency={reduceTransparency} style={styles.dockGlassRow} spacing={8}>
+              <GlassSurface
+                state={state}
+                reduceTransparency={reduceTransparency}
+                glassStyle="regular"
+                tintColor={state.colors.surface}
+                style={styles.tabCapsule}
+              >
+                {null}
+              </GlassSurface>
+
+              <GlassSurface
+                state={state}
+                reduceTransparency={reduceTransparency}
+                glassStyle="regular"
+                tintColor={state.colors.surface}
+                style={styles.addButton}
+              >
+                {null}
+              </GlassSurface>
+            </GlassGroup>
+
+            {segmentWidth > 0 && !pillHidden && (
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  styles.selectedPillTrack,
+                  {
+                    width: segmentWidth,
+                    transform: [
+                      { translateX: indicatorX },
+                      {
+                        scale: reduceMotion
+                          ? 1
+                          : pillLift.interpolate({ inputRange: [0, 1], outputRange: [1, 1.035] }),
+                      },
+                    ],
+                    shadowOpacity: reduceMotion ? 0.16 : pillLift.interpolate({ inputRange: [0, 1], outputRange: [0.12, 0.28] }),
+                    shadowRadius: reduceMotion ? 7 : pillLift.interpolate({ inputRange: [0, 1], outputRange: [5, 12] }),
+                    shadowOffset: {
+                      width: 0,
+                      height: reduceMotion ? 2 : (pillLift.interpolate({ inputRange: [0, 1], outputRange: [1, 5] }) as unknown as number),
+                    },
+                  },
+                ]}
+              >
+                {/* Keep the moving lens outside the base bar's GlassView.
+                    Nested glass is flattened by iOS into the parent material,
+                    which makes the selection surface disappear entirely. */}
+                <GlassSurface
+                  state={state}
+                  reduceTransparency={reduceTransparency}
+                  glassStyle="clear"
+                  interactive
+                  flat
+                  tintColor={nativeGlass
+                    ? alpha("#000000", state.appearance === "dark" ? 0.26 : 0.08)
+                    : alpha(state.colors.surface, state.appearance === "dark" ? 0.94 : 0.86)}
+                  style={[
+                    styles.selectedPill,
+                    {
+                      borderColor: nativeGlass
+                        ? "transparent"
+                        : alpha("#ffffff", state.appearance === "dark" ? 0.24 : 0.48),
+                    },
+                  ]}
+                >
+                  {null}
+                </GlassSurface>
+              </Animated.View>
+            )}
+
+            <View style={styles.dockContentRow}>
               <View
                 accessibilityRole="tablist"
                 style={styles.tabBarContents}
                 onLayout={onTabBarLayout}
                 {...panResponder.panHandlers}
               >
-                {segmentWidth > 0 && !pillHidden && (
-                  <Animated.View
-                    pointerEvents="none"
-                    style={[
-                      styles.selectedPillTrack,
-                      {
-                        width: segmentWidth,
-                        transform: [
-                          { translateX: indicatorX },
-                          {
-                            scale: reduceMotion
-                              ? 1
-                              : pillLift.interpolate({ inputRange: [0, 1], outputRange: [1, 1.035] }),
-                          },
-                        ],
-                        shadowOpacity: reduceMotion ? 0.16 : pillLift.interpolate({ inputRange: [0, 1], outputRange: [0.12, 0.28] }),
-                        shadowRadius: reduceMotion ? 7 : pillLift.interpolate({ inputRange: [0, 1], outputRange: [5, 12] }),
-                        shadowOffset: {
-                          width: 0,
-                          height: reduceMotion ? 2 : (pillLift.interpolate({ inputRange: [0, 1], outputRange: [1, 5] }) as unknown as number),
-                        },
-                      },
-                    ]}
-                  >
-                    <GlassSurface
-                      state={state}
-                      reduceTransparency={reduceTransparency}
-                      glassStyle="clear"
-                      interactive
-                      flat
-                      tintColor={nativeGlass
-                        ? undefined
-                        : alpha(state.colors.surface, state.appearance === "dark" ? 0.94 : 0.86)}
-                      style={[
-                        styles.selectedPill,
-                        {
-                          borderColor: nativeGlass
-                            ? "transparent"
-                            : alpha("#ffffff", state.appearance === "dark" ? 0.24 : 0.48),
-                        },
-                      ]}
-                    >
-                      {null}
-                    </GlassSurface>
-                  </Animated.View>
-                )}
                 {TABS.map((tab, index) => (
                   <TabItem
                     key={tab.url}
@@ -593,26 +613,19 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
                   />
                 ))}
               </View>
-            </GlassSurface>
-
-            <GlassSurface
-              state={state}
-              reduceTransparency={reduceTransparency}
-              glassStyle="regular"
-              tintColor={state.colors.surface}
-              style={styles.addButton}
-            >
-              <ChromeButton
-                label="Add item"
-                symbol="plus"
-                state={state}
-                reduceMotion={reduceMotion}
-                ink
-                large
-                onPress={() => onAction({ type: "compose" })}
-              />
-            </GlassSurface>
-          </GlassGroup>
+              <View style={styles.addButtonContent}>
+                <ChromeButton
+                  label="Add item"
+                  symbol="plus"
+                  state={state}
+                  reduceMotion={reduceMotion}
+                  ink
+                  large
+                  onPress={() => onAction({ type: "compose" })}
+                />
+              </View>
+            </View>
+          </View>
         </View>
       )}
     </View>
@@ -667,11 +680,31 @@ const styles = StyleSheet.create({
     elevation: 40,
   },
   dockStack: {
-    flexDirection: "row",
     width: "100%",
     maxWidth: 420,
+    height: 62,
+    position: "relative",
+  },
+  dockGlassRow: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    flexDirection: "row",
     alignItems: "stretch",
     gap: 12,
+  },
+  dockContentRow: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 12,
+    zIndex: 2,
   },
   tabCapsule: {
     flex: 1,
@@ -725,6 +758,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
+  },
+  addButtonContent: {
+    width: 62,
+    height: 62,
+    alignItems: "center",
+    justifyContent: "center",
   },
   focusExit: {
     position: "absolute",
