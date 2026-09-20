@@ -41,16 +41,18 @@ public class DatebookTabBarView: ExpoView, UITabBarDelegate {
       trayGlass.bottomAnchor.constraint(equalTo: bottomAnchor),
     ])
 
+    // `clipsToBounds = true` here, always: on a real device this glass
+    // material's backing render extends past its own frame when unclipped
+    // (a blur/refraction sampling margin, not a masking bug), which showed
+    // up as a second, larger, wrongly-shaped capsule bleeding out from
+    // behind and below the correctly-rounded one. The interactive selected-
+    // item bubble that genuinely needs room to lift lives one level down,
+    // inside `tabBar` — and this capsule is already generously sized
+    // (TRAY_HEIGHT in NativeChrome.tsx) well past that bubble's own resting
+    // size, so it never needs to reach this outer edge.
+    trayGlass.clipsToBounds = true
     if #available(iOS 26.0, *) {
-      // The new corner API rounds without a hard clip mask, so the
-      // interactive selection glass can still visually bulge past the
-      // capsule's resting edge while pressed/dragged instead of being cut
-      // off. Manual `cornerRadius` + `clipsToBounds` (the pre-26 fallback
-      // below) can't do that — clipping is exactly what it is.
       trayGlass.cornerConfiguration = .capsule()
-      trayGlass.clipsToBounds = false
-    } else {
-      trayGlass.clipsToBounds = true
     }
 
     configureTransparentTabBarBackground()

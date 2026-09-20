@@ -77,19 +77,19 @@ const TABS: { label: string; url: string; symbol: SFSymbol }[] = [
 
 const ASK_SLOT = 42;
 
-// Single sources of truth for the dock's real dimensions — the RN layout
+// Single source of truth for the dock's real dimensions — the RN layout
 // height/width actually given to each native control (their styles below
 // just reference these). A bare UITabBar's own background material renders
 // at a fixed, content-hugging height regardless of the frame or content
-// size it's given, so the tray's real height now comes from a taller outer
+// size it's given, so the tray's real height comes from a taller outer
 // glass capsule in DatebookTabBarView.swift (a plain UIVisualEffectView,
 // which does stretch to fill whatever bounds it's given) with a fully
 // transparent UITabBar on top supplying native items/selection/touch. The
-// "+" button keeps its existing size — the two controls are no longer tied
-// to the same number, so `dockRow` centers them instead of stretching both
-// to match.
+// "+" button is sized off this same constant (not an independent number)
+// so the two controls read as a deliberately paired set rather than a tall
+// tray next to an unrelated circle.
 const TRAY_HEIGHT = 76;
-const ADD_BUTTON_SIZE = 68;
+const ADD_BUTTON_SIZE = TRAY_HEIGHT;
 
 // The theme's own ink/inkFaint are tuned for AA contrast on a flat card
 // surface, not on frosted glass sitting over whatever content is scrolling
@@ -390,7 +390,11 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
           style={[
             styles.dockWrap,
             {
-              bottom: insets.bottom + 10,
+              // 5pt lower than the tray's earlier resting position — a
+              // single shared offset for the whole dock (tray + button
+              // together), not a per-control adjustment, so they stay
+              // exactly aligned with each other.
+              bottom: insets.bottom + 5,
               left: Math.max(12, insets.left + 8),
               right: Math.max(12, insets.right + 8),
             },
