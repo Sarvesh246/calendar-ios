@@ -61,16 +61,39 @@ public class DatebookTabBarView: ExpoView, UITabBarDelegate {
       tabBar.topAnchor.constraint(equalTo: topAnchor),
       tabBar.bottomAnchor.constraint(equalTo: bottomAnchor),
     ])
+
+    configureTypography()
   }
+
+  // A standalone UITabBar's actual rendered row height (not just the frame
+  // Auto Layout gives it) tracks its content's needed size — the same
+  // mechanism that grows the system bar under larger Dynamic Type sizes —
+  // not the `intrinsicContentSize`/`sizeThatFits` overrides above, which
+  // only affect what UIKit *thinks* the bar wants when something else asks.
+  // So the real lever for a taller floating pill is bigger item content:
+  // larger icons and a slightly larger title font, both through the
+  // documented `UITabBarAppearance` typography path — never the
+  // background/blur/shadow properties on it, which would fight the system
+  // Liquid Glass material.
+  private func configureTypography() {
+    let appearance = UITabBarAppearance()
+    let titleFont: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: 12, weight: .medium)]
+    let selectedTitleFont: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: 12, weight: .semibold)]
+    appearance.stackedLayoutAppearance.normal.titleTextAttributes = titleFont
+    appearance.stackedLayoutAppearance.selected.titleTextAttributes = selectedTitleFont
+    tabBar.standardAppearance = appearance
+    if #available(iOS 15.0, *) {
+      tabBar.scrollEdgeAppearance = appearance
+    }
+  }
+
+  private static let iconConfiguration = UIImage.SymbolConfiguration(pointSize: 25, weight: .medium)
 
   func setItems(_ items: [[String: String]]) {
     pendingItems = items
     tabBar.items = items.enumerated().map { index, item in
-      let tabItem = UITabBarItem(
-        title: item["label"],
-        image: UIImage(systemName: item["symbol"] ?? "circle"),
-        tag: index
-      )
+      let image = UIImage(systemName: item["symbol"] ?? "circle", withConfiguration: Self.iconConfiguration)
+      let tabItem = UITabBarItem(title: item["label"], image: image, tag: index)
       tabItem.accessibilityIdentifier = item["url"]
       return tabItem
     }
