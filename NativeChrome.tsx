@@ -77,19 +77,18 @@ const TABS: { label: string; url: string; symbol: SFSymbol }[] = [
 
 const ASK_SLOT = 42;
 
-// Single source of truth for the dock's real dimensions — the RN layout
-// height/width actually given to each native control (their styles below
-// just reference these). A bare UITabBar's own background material renders
-// at a fixed, content-hugging height regardless of the frame or content
-// size it's given, so the tray's real height comes from a taller outer
-// glass capsule in DatebookTabBarView.swift (a plain UIVisualEffectView,
-// which does stretch to fill whatever bounds it's given) with a fully
-// transparent UITabBar on top supplying native items/selection/touch. The
-// "+" button is sized off this same constant (not an independent number)
-// so the two controls read as a deliberately paired set rather than a tall
-// tray next to an unrelated circle.
-const TRAY_HEIGHT = 76;
-const ADD_BUTTON_SIZE = TRAY_HEIGHT;
+// RN layout height/width given to each native control (their styles below
+// just reference these). DatebookTabBarView.swift is back to a single,
+// plain UITabBar with no outer capsule wrapper — an earlier attempt to
+// grow the tray's visible height with a wrapping UIVisualEffectView caused
+// a second, wrongly-shaped glass artifact behind the real bar on a
+// physical device, confirmed even after clipping it. A bare UITabBar's own
+// background renders at its native, content-hugging height regardless of
+// this frame — that's a known, separate limitation this constant doesn't
+// solve; it's just the container size, not a promise the visible material
+// fills it. TRAY_HEIGHT and ADD_BUTTON_SIZE are independent again.
+const TRAY_HEIGHT = 64;
+const ADD_BUTTON_SIZE = 64;
 
 // The theme's own ink/inkFaint are tuned for AA contrast on a flat card
 // surface, not on frosted glass sitting over whatever content is scrolling
