@@ -82,5 +82,37 @@ public class DatebookNativeModule: Module {
     Function("clearInbox") {
       appGroupDefaults().removeObject(forKey: inboxKey)
     }
+
+    // Real UITabBar-backed nav tray. React supplies the items/selection/tint;
+    // this view owns nothing about routing, only relays the user's tap.
+    View(DatebookTabBarView.self) {
+      Prop("items") { (view: DatebookTabBarView, items: [[String: String]]) in
+        view.setItems(items)
+      }
+      Prop("selectedIndex") { (view: DatebookTabBarView, index: Int) in
+        view.setSelectedIndex(index)
+      }
+      Prop("tintColor") { (view: DatebookTabBarView, hex: String?) in
+        view.setTint(hex)
+      }
+      Prop("unselectedTintColor") { (view: DatebookTabBarView, hex: String?) in
+        view.setUnselectedTint(hex)
+      }
+      Prop("disabled") { (view: DatebookTabBarView, disabled: Bool) in
+        view.setDisabled(disabled)
+      }
+      Events("onSelect")
+    }
+
+    // The separate circular "+" glass control.
+    View(DatebookGlassButtonView.self) {
+      Prop("disabled") { (view: DatebookGlassButtonView, disabled: Bool) in
+        view.setDisabled(disabled)
+      }
+      Prop("accessibilityLabel") { (view: DatebookGlassButtonView, label: String?) in
+        view.setLabel(label)
+      }
+      Events("onPress")
+    }
   }
 }
