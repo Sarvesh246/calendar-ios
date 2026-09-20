@@ -1,21 +1,26 @@
-import { GlassContainer, GlassView, isGlassEffectAPIAvailable } from "expo-glass-effect";
-import * as Haptics from "expo-haptics";
+import { GlassView, isGlassEffectAPIAvailable } from "expo-glass-effect";
 import { SymbolView, type SFSymbol } from "expo-symbols";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { requireDatebookGlassButtonView, requireDatebookTabBarView } from "./modules/datebook-native";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AccessibilityInfo,
   Animated,
   Keyboard,
-  PanResponder,
   Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
-  type LayoutChangeEvent,
   type ViewStyle,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+// Real `UITabBar` / `UIButton.Configuration.glass()` on iOS; `null` on other
+// platforms (or an Expo Go client without the custom native module), where a
+// plain JS fallback below takes over. Resolved once at module scope, not
+// per-render.
+const DatebookNativeTabBar = requireDatebookTabBarView();
+const DatebookNativeGlassButton = requireDatebookGlassButtonView();
 
 export type NativeChromeState = {
   ready: boolean;
@@ -71,6 +76,15 @@ const TABS: { label: string; url: string; symbol: SFSymbol }[] = [
 ];
 
 const ASK_SLOT = 42;
+
+// Single source of truth for the dock's real height: this is the RN layout
+// height actually given to the native tab bar and "+" button (their own
+// styles below just reference it), and it's what `SizedTabBar` in
+// DatebookTabBarView.swift reports back to UIKit's own item-layout code —
+// nothing on the Swift side hard-codes a second number. 68pt (vs. the old
+// 62pt) gives the standalone UITabBar's icon/label stack the vertical
+// breathing room a hosted, controller-managed tab bar gets by default.
+const DOCK_HEIGHT = 68;
 
 // The theme's own ink/inkFaint are tuned for AA contrast on a flat card
 // surface, not on frosted glass sitting over whatever content is scrolling
@@ -146,19 +160,6 @@ function GlassSurface({
       {children}
     </View>
   );
-}
-
-function GlassGroup({ children, reduceTransparency, style, spacing = 18 }: {
-  children: ReactNode;
-  reduceTransparency: boolean;
-  style: ViewStyle | ViewStyle[];
-  spacing?: number;
-}) {
-  const nativeGlass = Platform.OS === "ios" && isGlassEffectAPIAvailable() && !reduceTransparency;
-  if (nativeGlass) {
-    return <GlassContainer spacing={spacing} style={style}>{children}</GlassContainer>;
-  }
-  return <View style={style}>{children}</View>;
 }
 
 function ChromeButton({
@@ -286,33 +287,11 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
   const [reduceTransparency, setReduceTransparency] = useState(false);
   const [reduceMotion, setReduceMotion] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
-  const [tabBarWidth, setTabBarWidth] = useState(0);
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const [dragging, setDragging] = useState(false);
-  // True only when the current route has no matching tab (Settings/Schedule).
-  // Rubber-band overscroll can drift the animated position slightly negative,
-  // but that is not "no selection". Keep visibility separate from position so
-  // the pill cannot vanish while a finger is still dragging it.
-  const [pillHidden, setPillHidden] = useState(false);
-  const indicatorX = useRef(new Animated.Value(0)).current;
   const askReveal = useRef(new Animated.Value(state.inRoom ? 0 : 1)).current;
-  // 0 = settled in the bar, 1 = picked up with a slightly larger highlight
-  // and shadow while a finger holds it. The lens itself stays native clear
-  // glass throughout; changing it into an accent-colored fill mid-gesture is
-  // what made the previous transition look layered instead of liquid.
-  const pillLift = useRef(new Animated.Value(0)).current;
-  const dragOrigin = useRef(0);
-  const dragPosition = useRef(0);
-  const previewIndex = useRef(0);
-  const lastTabIndex = useRef(0);
-  const didDrag = useRef(false);
-  const tapX = useRef(0);
 
-  // onLayout includes the track's 4pt padding on both sides. Measuring only
-  // the usable inner width keeps the trailing pill fully inside the capsule.
-  const segmentWidth = tabBarWidth > 0 ? (tabBarWidth - 8) / TABS.length : 0;
+  // -1 means the current route has no matching tab (Settings/Schedule):
+  // leave the tray without a lit destination rather than forcing one.
   const routeIndex = TABS.findIndex((tab) => tab.url === state.pathname);
-  const nativeGlass = Platform.OS === "ios" && isGlassEffectAPIAvailable() && !reduceTransparency;
 
   useEffect(() => {
     void AccessibilityInfo.isReduceTransparencyEnabled().then(setReduceTransparency);
@@ -335,20 +314,6 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
   }, []);
 
   useEffect(() => {
-    if (reduceMotion) {
-      pillLift.setValue(dragging ? 1 : 0);
-      return;
-    }
-    Animated.spring(pillLift, {
-      toValue: dragging ? 1 : 0,
-      stiffness: dragging ? 420 : 300,
-      damping: dragging ? 24 : 22,
-      mass: 0.6,
-      useNativeDriver: false,
-    }).start();
-  }, [dragging, pillLift, reduceMotion]);
-
-  useEffect(() => {
     const open = state.inRoom ? 0 : 1;
     if (reduceMotion) {
       askReveal.setValue(open);
@@ -363,106 +328,17 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
     }).start();
   }, [askReveal, reduceMotion, state.inRoom]);
 
-  const settleIndicator = useCallback((index: number, velocity = 0) => {
-    if (!segmentWidth) return;
-    const target = index * segmentWidth;
-    dragPosition.current = target;
-    setSelectedIndex(index);
-    if (reduceMotion) {
-      indicatorX.setValue(target);
-      return;
-    }
-    Animated.spring(indicatorX, {
-      toValue: target,
-      velocity,
-      stiffness: 265,
-      damping: 20,
-      mass: 0.72,
-      // PanResponder writes this same value with setValue while the finger is
-      // down. React Native animated nodes cannot switch from the native driver
-      // back to JS updates, so keep the position on one driver for its entire
-      // lifetime. The lift/press springs remain independently accelerated.
-      useNativeDriver: false,
-    }).start();
-  }, [indicatorX, reduceMotion, segmentWidth]);
-
-  useEffect(() => {
-    if (routeIndex < 0) {
-      previewIndex.current = -1;
-      setSelectedIndex(-1);
-      setPillHidden(true);
-      return;
-    }
-    setPillHidden(false);
-    lastTabIndex.current = routeIndex;
-    previewIndex.current = routeIndex;
-    settleIndicator(routeIndex);
-  }, [routeIndex, settleIndicator]);
-
-  const navigateToTab = useCallback((index: number, velocity = 0) => {
+  // The native UITabBar owns press-and-hold lift, finger tracking between
+  // items, accent preview, spring settle and haptics itself — this only
+  // relays the committed selection into the same navigate intent the old
+  // custom pill used to send. Setting `selectedIndex` from a route change
+  // (below, via the `routeIndex` prop) never re-enters here: iOS only calls
+  // a tab bar's delegate for a user-driven selection, not a programmatic one.
+  const navigateToTab = useCallback((index: number) => {
     const tab = TABS[index];
     if (!tab) return;
-    lastTabIndex.current = index;
-    previewIndex.current = index;
-    settleIndicator(index, velocity);
     if (state.pathname !== tab.url) onAction({ type: "navigate", url: tab.url });
-  }, [onAction, settleIndicator, state.pathname]);
-
-  const panResponder = useMemo(() => PanResponder.create({
-    onStartShouldSetPanResponder: () => segmentWidth > 0,
-    onMoveShouldSetPanResponder: (_, gesture) =>
-      segmentWidth > 0 && Math.abs(gesture.dx) > Math.abs(gesture.dy),
-    onMoveShouldSetPanResponderCapture: (_, gesture) =>
-      segmentWidth > 0 && Math.abs(gesture.dx) > 6 && Math.abs(gesture.dx) > Math.abs(gesture.dy),
-    onPanResponderTerminationRequest: () => false,
-    onPanResponderGrant: (event) => {
-      didDrag.current = false;
-      tapX.current = event.nativeEvent.locationX;
-      setDragging(true);
-      setPillHidden(false);
-      indicatorX.stopAnimation((value) => {
-        dragOrigin.current = value;
-        dragPosition.current = value;
-      });
-    },
-    onPanResponderMove: (_, gesture) => {
-      if (Math.abs(gesture.dx) > 6) didDrag.current = true;
-      const max = segmentWidth * (TABS.length - 1);
-      const unbounded = dragOrigin.current + gesture.dx;
-      const next = unbounded < 0
-        ? unbounded * 0.28
-        : unbounded > max
-          ? max + (unbounded - max) * 0.28
-          : unbounded;
-      dragPosition.current = next;
-      indicatorX.setValue(next);
-      const nextIndex = Math.max(0, Math.min(TABS.length - 1, Math.round(next / segmentWidth)));
-      if (nextIndex !== previewIndex.current) {
-        previewIndex.current = nextIndex;
-        setSelectedIndex(nextIndex);
-        void Haptics.selectionAsync();
-      }
-    },
-    onPanResponderRelease: (_, gesture) => {
-      setDragging(false);
-      if (!segmentWidth) return;
-      if (!didDrag.current) {
-        const tapped = Math.max(0, Math.min(TABS.length - 1, Math.floor((tapX.current - 4) / segmentWidth)));
-        if (tapped !== lastTabIndex.current) void Haptics.selectionAsync();
-        navigateToTab(tapped, 0);
-        return;
-      }
-      const max = segmentWidth * (TABS.length - 1);
-      const projected = Math.max(0, Math.min(max, dragPosition.current + gesture.vx * 34));
-      navigateToTab(Math.round(projected / segmentWidth), gesture.vx);
-    },
-    onPanResponderTerminate: () => {
-      setDragging(false);
-      settleIndicator(lastTabIndex.current);
-    },
-  }), [indicatorX, navigateToTab, segmentWidth, settleIndicator]);
-
-  const onTabBarLayout = (event: LayoutChangeEvent) => setTabBarWidth(event.nativeEvent.layout.width);
+  }, [onAction, state.pathname]);
 
   if (!state.ready || state.obscured) return null;
 
@@ -515,116 +391,59 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
             },
           ]}
         >
-          {/* A tighter merge spacing than the row's own gap keeps the tab pill
-              and the add button from fusing into one blob — the default
-              GlassContainer spacing (18) is wider than the 12pt gap between
-              them, which is what was pulling the two into a single shape. */}
-          <View style={styles.dockStack}>
-            <GlassGroup reduceTransparency={reduceTransparency} style={styles.dockGlassRow} spacing={8}>
-              <GlassSurface
-                state={state}
-                reduceTransparency={reduceTransparency}
-                glassStyle="regular"
-                tintColor={state.colors.surface}
-                style={styles.tabCapsule}
-              >
-                {null}
-              </GlassSurface>
-
-              <GlassSurface
-                state={state}
-                reduceTransparency={reduceTransparency}
-                glassStyle="regular"
-                tintColor={state.colors.surface}
-                style={styles.addButton}
-              >
-                {null}
-              </GlassSurface>
-            </GlassGroup>
-
-            {segmentWidth > 0 && !pillHidden && (
-              <Animated.View
-                pointerEvents="none"
-                style={[
-                  styles.selectedPillTrack,
-                  {
-                    width: segmentWidth,
-                    transform: [
-                      { translateX: indicatorX },
-                      {
-                        scale: reduceMotion
-                          ? 1
-                          : pillLift.interpolate({ inputRange: [0, 1], outputRange: [1, 1.035] }),
-                      },
-                    ],
-                    shadowOpacity: reduceMotion ? 0.16 : pillLift.interpolate({ inputRange: [0, 1], outputRange: [0.12, 0.28] }),
-                    shadowRadius: reduceMotion ? 7 : pillLift.interpolate({ inputRange: [0, 1], outputRange: [5, 12] }),
-                    shadowOffset: {
-                      width: 0,
-                      height: reduceMotion ? 2 : (pillLift.interpolate({ inputRange: [0, 1], outputRange: [1, 5] }) as unknown as number),
-                    },
-                  },
-                ]}
-              >
-                {/* Keep the moving lens outside the base bar's GlassView.
-                    Nested glass is flattened by iOS into the parent material,
-                    which makes the selection surface disappear entirely. */}
-                <GlassSurface
-                  state={state}
-                  reduceTransparency={reduceTransparency}
-                  glassStyle="clear"
-                  interactive
-                  flat
-                  tintColor={nativeGlass
-                    ? alpha("#000000", state.appearance === "dark" ? 0.26 : 0.08)
-                    : alpha(state.colors.surface, state.appearance === "dark" ? 0.94 : 0.86)}
-                  style={[
-                    styles.selectedPill,
-                    {
-                      borderColor: nativeGlass
-                        ? "transparent"
-                        : alpha("#ffffff", state.appearance === "dark" ? 0.24 : 0.48),
-                    },
-                  ]}
-                >
-                  {null}
-                </GlassSurface>
-              </Animated.View>
-            )}
-
-            <View style={styles.dockContentRow}>
-              <View
+          {/* Two separate system glass objects, kept apart by this row gap —
+              never merged into one droplet. Each is a real UIKit control
+              (UITabBar / UIButton.Configuration.glass()) on iOS; UIKit owns
+              all press, drag, refraction and spring behavior for both. */}
+          <View style={styles.dockRow}>
+            {DatebookNativeTabBar ? (
+              <DatebookNativeTabBar
                 accessibilityRole="tablist"
-                style={styles.tabBarContents}
-                onLayout={onTabBarLayout}
-                {...panResponder.panHandlers}
-              >
+                style={styles.tabBarNative}
+                items={TABS.map((tab) => ({ label: tab.label, symbol: tab.symbol, url: tab.url }))}
+                selectedIndex={routeIndex}
+                tintColor={state.colors.accent}
+                interfaceStyle={state.appearance}
+                disabled={false}
+                onSelect={(event) => navigateToTab(event.nativeEvent.index)}
+              />
+            ) : (
+              // Non-iOS (e.g. Android) or a client without the native module:
+              // a plain JS row with no drag physics to fake. Liquid Glass is
+              // an iOS-only ask; this path exists so the app still functions.
+              <View accessibilityRole="tablist" style={styles.tabBarFallback}>
                 {TABS.map((tab, index) => (
                   <TabItem
                     key={tab.url}
                     label={tab.label}
                     symbol={tab.symbol}
                     state={state}
-                    selected={!pillHidden && selectedIndex === index}
-                    onPress={() => {
-                      if (index !== lastTabIndex.current) void Haptics.selectionAsync();
-                      navigateToTab(index);
-                    }}
+                    selected={routeIndex === index}
+                    onPress={() => navigateToTab(index)}
                   />
                 ))}
               </View>
-              <View style={styles.addButtonContent}>
-                <ChromeButton
-                  label="Add item"
-                  symbol="plus"
-                  state={state}
-                  reduceMotion={reduceMotion}
-                  ink
-                  large
-                  onPress={() => onAction({ type: "compose" })}
-                />
-              </View>
-            </View>
+            )}
+
+            {DatebookNativeGlassButton ? (
+              <DatebookNativeGlassButton
+                style={styles.addButtonNative}
+                accessibilityLabel="Add item"
+                interfaceStyle={state.appearance}
+                disabled={false}
+                onPress={() => onAction({ type: "compose" })}
+              />
+            ) : (
+              <ChromeButton
+                label="Add item"
+                symbol="plus"
+                state={state}
+                reduceMotion={reduceMotion}
+                ink
+                large
+                onPress={() => onAction({ type: "compose" })}
+              />
+            )}
           </View>
         </View>
       )}
@@ -674,64 +493,35 @@ const styles = StyleSheet.create({
     top: -3,
   },
   dockWrap: {
+    // Deliberately not clipped: a native UITabBar's pressed selection glass
+    // and a UIButton's glass press both need room to lift/stretch outside
+    // their resting bounds.
     position: "absolute",
     alignItems: "center",
     zIndex: 40,
     elevation: 40,
   },
-  dockStack: {
+  dockRow: {
     width: "100%",
     maxWidth: 420,
-    height: 62,
-    position: "relative",
-  },
-  dockGlassRow: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
+    height: DOCK_HEIGHT,
     flexDirection: "row",
     alignItems: "stretch",
     gap: 12,
   },
-  dockContentRow: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    flexDirection: "row",
-    alignItems: "stretch",
-    gap: 12,
-    zIndex: 2,
-  },
-  tabCapsule: {
+  tabBarNative: {
     flex: 1,
-    height: 62,
-    borderRadius: 31,
-    overflow: "hidden",
+    height: DOCK_HEIGHT,
   },
-  tabBarContents: {
+  tabBarFallback: {
     flex: 1,
+    height: DOCK_HEIGHT,
+    borderRadius: DOCK_HEIGHT / 2,
     flexDirection: "row",
     alignItems: "stretch",
     padding: 4,
-  },
-  selectedPillTrack: {
-    position: "absolute",
-    top: 4,
-    bottom: 4,
-    left: 4,
-    shadowColor: "#000",
-    zIndex: 1,
-  },
-  selectedPill: {
-    flex: 1,
-    marginHorizontal: 3,
-    borderRadius: 22,
     overflow: "hidden",
-    borderWidth: StyleSheet.hairlineWidth,
+    backgroundColor: "rgba(44, 44, 46, 0.92)",
   },
   tabPressable: {
     flex: 1,
@@ -740,7 +530,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 4,
-    zIndex: 2,
   },
   tabItemInner: {
     alignItems: "center",
@@ -751,19 +540,12 @@ const styles = StyleSheet.create({
     letterSpacing: 0.105,
     fontFamily: Platform.OS === "ios" ? "System" : undefined,
   },
-  addButton: {
-    width: 62,
-    height: 62,
-    borderRadius: 31,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-  },
-  addButtonContent: {
-    width: 62,
-    height: 62,
-    alignItems: "center",
-    justifyContent: "center",
+  addButtonNative: {
+    // Same height as the tray so both stretch to fill `dockRow` identically
+    // and stay vertically centered together; width equal to height keeps it
+    // a true circle.
+    width: DOCK_HEIGHT,
+    height: DOCK_HEIGHT,
   },
   focusExit: {
     position: "absolute",
