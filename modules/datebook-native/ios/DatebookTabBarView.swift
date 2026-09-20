@@ -1,0 +1,116 @@
+import ExpoModulesCore
+import UIKit
+
+/// Wraps a real system `UITabBar` so the three-item nav tray gets Apple's own
+/// interactive Liquid Glass selection behavior (press-and-hold lift, finger
+/// tracking between items, accent preview, spring settle, Reduce Motion /
+/// Reduce Transparency handling, accessibility) for free on iOS 26+, and a
+/// standard translucent `UITabBar` on older iOS. None of that behavior is
+/// reimplemented here — this view only feeds the bar its items/tint and
+/// relays the user's selection back to JS. React remains the source of truth
+/// for routing: this view never navigates on its own.
+public class DatebookTabBarView: ExpoView, UITabBarDelegate {
+  let onSelect = EventDispatcher()
+
+  private let tabBar = UITabBar()
+  private var isProgrammaticSelection = false
+  private var pendingItems: [[String: String]] = []
+
+  public required init(appContext: AppContext? = nil) {
+    super.init(appContext: appContext)
+
+    tabBar.delegate = self
+    tabBar.translatesAutoresizingMaskIntoConstraints = false
+    // Let the system material show real content behind it — never force the
+    // bar opaque, and never clip the pressed selection bubble as it lifts
+    // outside the bar's resting bounds.
+    tabBar.isTranslucent = true
+    tabBar.clipsToBounds = false
+    clipsToBounds = false
+    addSubview(tabBar)
+
+    NSLayoutConstraint.activate([
+      tabBar.leadingAnchor.constraint(equalTo: leadingAnchor),
+      tabBar.trailingAnchor.constraint(equalTo: trailingAnchor),
+      tabBar.topAnchor.constraint(equalTo: topAnchor),
+      tabBar.bottomAnchor.constraint(equalTo: bottomAnchor),
+    ])
+  }
+
+  func setItems(_ items: [[String: String]]) {
+    pendingItems = items
+    tabBar.items = items.enumerated().map { index, item in
+      let tabItem = UITabBarItem(
+        title: item["label"],
+        image: UIImage(systemName: item["symbol"] ?? "circle"),
+        tag: index
+      )
+      tabItem.accessibilityIdentifier = item["url"]
+      return tabItem
+    }
+    applySelection(currentSelectedIndex, animated: false)
+  }
+
+  private var currentSelectedIndex = 0
+
+  func setSelectedIndex(_ index: Int) {
+    currentSelectedIndex = index
+    applySelection(index, animated: true)
+  }
+
+  private func applySelection(_ index: Int, animated: Bool) {
+    guard let items = tabBar.items, index >= 0, index < items.count else {
+      // A route with no matching tab (Settings/Schedule) — leave the tray
+      // without a system selection rather than forcing a wrong tab lit.
+      isProgrammaticSelection = true
+      tabBar.selectedItem = nil
+      isProgrammaticSelection = false
+      return
+    }
+    isProgrammaticSelection = true
+    tabBar.selectedItem = items[index]
+    isProgrammaticSelection = false
+  }
+
+  func setTint(_ hex: String?) {
+    tabBar.tintColor = UIColor(datebookHex: hex) ?? .systemBlue
+  }
+
+  func setUnselectedTint(_ hex: String?) {
+    tabBar.unselectedItemTintColor = UIColor(datebookHex: hex) ?? .secondaryLabel
+  }
+
+  func setDisabled(_ disabled: Bool) {
+    tabBar.isUserInteractionEnabled = !disabled
+    // Dim, don't fake a different material, while chrome is suppressed
+    // (a sheet/drawer/focus overlay is up).
+    tabBar.alpha = disabled ? 0.4 : 1
+  }
+
+  // MARK: UITabBarDelegate
+
+  public func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
+    // `selectedItem =` (used by setSelectedIndex, driven by React's route
+    // sync) does not itself invoke this delegate method on iOS — only a real
+    // user tap/drag-release does. This guard is a second line of defense in
+    // case that ever changes, so a programmatic sync can never round-trip
+    // into a second navigate intent.
+    guard !isProgrammaticSelection else { return }
+    currentSelectedIndex = item.tag
+    onSelect(["index": item.tag])
+  }
+}
+
+extension UIColor {
+  convenience init?(datebookHex hex: String?) {
+    guard var value = hex?.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
+    value = value.replacingOccurrences(of: "#", with: "")
+    guard value.count == 6, let rgb = UInt32(value, radix: 16) else { return nil }
+    self.init(
+      red: CGFloat((rgb >> 16) & 0xFF) / 255,
+      green: CGFloat((rgb >> 8) & 0xFF) / 255,
+      blue: CGFloat(rgb & 0xFF) / 255,
+      alpha: 1
+    )
+  }
+}
