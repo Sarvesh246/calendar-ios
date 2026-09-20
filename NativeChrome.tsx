@@ -77,14 +77,19 @@ const TABS: { label: string; url: string; symbol: SFSymbol }[] = [
 
 const ASK_SLOT = 42;
 
-// Single source of truth for the dock's real height: this is the RN layout
-// height actually given to the native tab bar and "+" button (their own
-// styles below just reference it), and it's what `SizedTabBar` in
-// DatebookTabBarView.swift reports back to UIKit's own item-layout code —
-// nothing on the Swift side hard-codes a second number. 68pt (vs. the old
-// 62pt) gives the standalone UITabBar's icon/label stack the vertical
-// breathing room a hosted, controller-managed tab bar gets by default.
-const DOCK_HEIGHT = 68;
+// Single sources of truth for the dock's real dimensions — the RN layout
+// height/width actually given to each native control (their styles below
+// just reference these). A bare UITabBar's own background material renders
+// at a fixed, content-hugging height regardless of the frame or content
+// size it's given, so the tray's real height now comes from a taller outer
+// glass capsule in DatebookTabBarView.swift (a plain UIVisualEffectView,
+// which does stretch to fill whatever bounds it's given) with a fully
+// transparent UITabBar on top supplying native items/selection/touch. The
+// "+" button keeps its existing size — the two controls are no longer tied
+// to the same number, so `dockRow` centers them instead of stretching both
+// to match.
+const TRAY_HEIGHT = 76;
+const ADD_BUTTON_SIZE = 68;
 
 // The theme's own ink/inkFaint are tuned for AA contrast on a flat card
 // surface, not on frosted glass sitting over whatever content is scrolling
@@ -504,19 +509,23 @@ const styles = StyleSheet.create({
   dockRow: {
     width: "100%",
     maxWidth: 420,
-    height: DOCK_HEIGHT,
+    height: Math.max(TRAY_HEIGHT, ADD_BUTTON_SIZE),
     flexDirection: "row",
-    alignItems: "stretch",
+    // Center rather than stretch: the tray and the "+" button are
+    // deliberately different heights now, so each keeps its own real size
+    // and both sit centered on the same row instead of one stretching to
+    // match the other.
+    alignItems: "center",
     gap: 12,
   },
   tabBarNative: {
     flex: 1,
-    height: DOCK_HEIGHT,
+    height: TRAY_HEIGHT,
   },
   tabBarFallback: {
     flex: 1,
-    height: DOCK_HEIGHT,
-    borderRadius: DOCK_HEIGHT / 2,
+    height: TRAY_HEIGHT,
+    borderRadius: TRAY_HEIGHT / 2,
     flexDirection: "row",
     alignItems: "stretch",
     padding: 4,
@@ -541,11 +550,12 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === "ios" ? "System" : undefined,
   },
   addButtonNative: {
-    // Same height as the tray so both stretch to fill `dockRow` identically
-    // and stay vertically centered together; width equal to height keeps it
-    // a true circle.
-    width: DOCK_HEIGHT,
-    height: DOCK_HEIGHT,
+    // Kept at its existing size rather than tied to the tray's height —
+    // width equal to height keeps it a true circle; `dockRow`'s centered
+    // alignment (not stretch) is what keeps it vertically centered against
+    // the now-taller tray beside it.
+    width: ADD_BUTTON_SIZE,
+    height: ADD_BUTTON_SIZE,
   },
   focusExit: {
     position: "absolute",
