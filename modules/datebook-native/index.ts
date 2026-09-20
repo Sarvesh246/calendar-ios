@@ -29,18 +29,24 @@ export function datebookNative(): Native | null {
 
 export type DatebookTabBarItem = { label: string; symbol: string; url: string };
 
+/** Datebook's own resolved in-app appearance — never the phone's Dark Mode
+ *  setting, which the view would otherwise inherit by default. */
+export type DatebookInterfaceStyle = "light" | "dark";
+
 export type DatebookTabBarProps = ViewProps & {
   items: DatebookTabBarItem[];
   selectedIndex: number;
   tintColor?: string;
   unselectedTintColor?: string;
   disabled?: boolean;
+  interfaceStyle?: DatebookInterfaceStyle;
   onSelect?: (event: { nativeEvent: { index: number } }) => void;
 };
 
 export type DatebookGlassButtonProps = ViewProps & {
   disabled?: boolean;
   accessibilityLabel?: string;
+  interfaceStyle?: DatebookInterfaceStyle;
   onPress?: (event: { nativeEvent: Record<string, never> }) => void;
 };
 
