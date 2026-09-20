@@ -1,106 +1,113 @@
 import ExpoModulesCore
 import UIKit
 
-/// A standalone `UITabBar` reports a fixed ~49pt `intrinsicContentSize`/
-/// `sizeThatFits` by default — a leftover from the assumption that a
-/// `UITabBarController` owns it. Even though Auto Layout still gives it
-/// whatever frame `DatebookTabBarView` is laid out at, the bar's own
-/// internal item layout consults its intrinsic/fitting size to decide how
-/// much vertical room the icon/label stack gets, so an unmodified bar
-/// squeezes its content into that ~49pt assumption inside a taller frame.
-/// Handing its own current bounds back through both queries makes the
-/// *system* item layout use the real height — React's style height (set on
-/// `DatebookTabBarView`, which this bar exactly fills) stays the only place
-/// that number is decided; nothing here hard-codes a second one.
-private final class SizedTabBar: UITabBar {
-  override var intrinsicContentSize: CGSize {
-    let height = bounds.height > 0 ? bounds.height : super.intrinsicContentSize.height
-    return CGSize(width: UIView.noIntrinsicMetric, height: height)
-  }
-
-  override func sizeThatFits(_ size: CGSize) -> CGSize {
-    var fitted = super.sizeThatFits(size)
-    if bounds.height > 0 {
-      fitted.height = bounds.height
-    }
-    return fitted
-  }
-}
-
-/// Wraps a real system `UITabBar` so the three-item nav tray gets Apple's own
-/// interactive Liquid Glass selection behavior (press-and-hold lift, finger
-/// tracking between items, accent preview, spring settle, Reduce Motion /
-/// Reduce Transparency handling, accessibility) for free on iOS 26+, and a
-/// standard translucent `UITabBar` on older iOS. None of that behavior is
-/// reimplemented here — this view only feeds the bar its items/tint and
-/// relays the user's selection back to JS. React remains the source of truth
-/// for routing: this view never navigates on its own.
+/// Structure: a taller outer glass capsule supplies the tray's real height
+/// and padding; a fully transparent `UITabBar` sits inside it and supplies
+/// everything native — items, selection state, touch handling, tint,
+/// accessibility. This exists because a bare `UITabBar`'s own background
+/// material renders at a fixed, content-hugging height that does not
+/// stretch to fill a larger frame and does not grow with bigger icons or
+/// labels either (both tried and confirmed not to work against a real
+/// device). `UITabBarController` doesn't change that either — it composes
+/// the same `UITabBar` class, so it wouldn't make the bar's own material
+/// taller. The outer capsule is a genuine `UIVisualEffectView`, which does
+/// stretch to whatever bounds it's given, so it can be the taller surface
+/// while the transparent bar keeps every bit of native tab behavior on top
+/// of it.
 public class DatebookTabBarView: ExpoView, UITabBarDelegate {
   let onSelect = EventDispatcher()
 
-  private let tabBar = SizedTabBar()
+  private let trayGlass: UIVisualEffectView = {
+    if #available(iOS 26.0, *) {
+      return UIVisualEffectView(effect: UIGlassEffect())
+    }
+    return UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
+  }()
+
+  private let tabBar = UITabBar()
   private var isProgrammaticSelection = false
-  private var pendingItems: [[String: String]] = []
+  private var currentSelectedIndex = 0
 
   public required init(appContext: AppContext? = nil) {
     super.init(appContext: appContext)
 
-    tabBar.delegate = self
-    tabBar.translatesAutoresizingMaskIntoConstraints = false
-    // Let the system material show real content behind it — never force the
-    // bar opaque, and never clip the pressed selection bubble as it lifts
-    // outside the bar's resting bounds.
-    tabBar.isTranslucent = true
-    tabBar.clipsToBounds = false
     clipsToBounds = false
-    addSubview(tabBar)
-
+    trayGlass.translatesAutoresizingMaskIntoConstraints = false
+    addSubview(trayGlass)
     NSLayoutConstraint.activate([
-      tabBar.leadingAnchor.constraint(equalTo: leadingAnchor),
-      tabBar.trailingAnchor.constraint(equalTo: trailingAnchor),
-      tabBar.topAnchor.constraint(equalTo: topAnchor),
-      tabBar.bottomAnchor.constraint(equalTo: bottomAnchor),
+      trayGlass.leadingAnchor.constraint(equalTo: leadingAnchor),
+      trayGlass.trailingAnchor.constraint(equalTo: trailingAnchor),
+      trayGlass.topAnchor.constraint(equalTo: topAnchor),
+      trayGlass.bottomAnchor.constraint(equalTo: bottomAnchor),
     ])
 
-    configureTypography()
+    if #available(iOS 26.0, *) {
+      // The new corner API rounds without a hard clip mask, so the
+      // interactive selection glass can still visually bulge past the
+      // capsule's resting edge while pressed/dragged instead of being cut
+      // off. Manual `cornerRadius` + `clipsToBounds` (the pre-26 fallback
+      // below) can't do that — clipping is exactly what it is.
+      trayGlass.cornerConfiguration = .capsule()
+      trayGlass.clipsToBounds = false
+    } else {
+      trayGlass.clipsToBounds = true
+    }
+
+    configureTransparentTabBarBackground()
+    tabBar.delegate = self
+    tabBar.translatesAutoresizingMaskIntoConstraints = false
+    tabBar.isTranslucent = true
+    tabBar.clipsToBounds = false
+    trayGlass.contentView.addSubview(tabBar)
+
+    NSLayoutConstraint.activate([
+      tabBar.leadingAnchor.constraint(equalTo: trayGlass.contentView.leadingAnchor),
+      tabBar.trailingAnchor.constraint(equalTo: trayGlass.contentView.trailingAnchor),
+      tabBar.topAnchor.constraint(equalTo: trayGlass.contentView.topAnchor),
+      tabBar.bottomAnchor.constraint(equalTo: trayGlass.contentView.bottomAnchor),
+    ])
   }
 
-  // A standalone UITabBar's actual rendered row height (not just the frame
-  // Auto Layout gives it) tracks its content's needed size — the same
-  // mechanism that grows the system bar under larger Dynamic Type sizes —
-  // not the `intrinsicContentSize`/`sizeThatFits` overrides above, which
-  // only affect what UIKit *thinks* the bar wants when something else asks.
-  // So the real lever for a taller floating pill is bigger item content:
-  // larger icons and a slightly larger title font, both through the
-  // documented `UITabBarAppearance` typography path — never the
-  // background/blur/shadow properties on it, which would fight the system
-  // Liquid Glass material.
-  private func configureTypography() {
+  public override func layoutSubviews() {
+    super.layoutSubviews()
+    if #unavailable(iOS 26.0) {
+      // No `cornerConfiguration` pre-26 — round the fallback blur by hand,
+      // which does require clipping (see the `clipsToBounds = true` above).
+      trayGlass.layer.cornerRadius = trayGlass.bounds.height / 2
+    }
+  }
+
+  /// Strips only the bar's own base material/shadow so it doesn't draw a
+  /// second, shorter glass capsule on top of `trayGlass` — items, their
+  /// selected state, and the system tint are untouched. `configureWith
+  /// TransparentBackground()` is the documented starting point for "no
+  /// background" (as opposed to leaving `UITabBarAppearance()` at its
+  /// opaque-by-default baseline); explicitly zeroing `backgroundEffect`
+  /// removes the blur it still applies by default even when transparent.
+  private func configureTransparentTabBarBackground() {
     let appearance = UITabBarAppearance()
-    let titleFont: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: 12, weight: .medium)]
-    let selectedTitleFont: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: 12, weight: .semibold)]
-    appearance.stackedLayoutAppearance.normal.titleTextAttributes = titleFont
-    appearance.stackedLayoutAppearance.selected.titleTextAttributes = selectedTitleFont
+    appearance.configureWithTransparentBackground()
+    appearance.backgroundColor = .clear
+    appearance.backgroundEffect = nil
+    appearance.shadowColor = .clear
     tabBar.standardAppearance = appearance
     if #available(iOS 15.0, *) {
       tabBar.scrollEdgeAppearance = appearance
     }
   }
 
-  private static let iconConfiguration = UIImage.SymbolConfiguration(pointSize: 25, weight: .medium)
-
   func setItems(_ items: [[String: String]]) {
-    pendingItems = items
     tabBar.items = items.enumerated().map { index, item in
-      let image = UIImage(systemName: item["symbol"] ?? "circle", withConfiguration: Self.iconConfiguration)
-      let tabItem = UITabBarItem(title: item["label"], image: image, tag: index)
+      let tabItem = UITabBarItem(
+        title: item["label"],
+        image: UIImage(systemName: item["symbol"] ?? "circle"),
+        tag: index
+      )
       tabItem.accessibilityIdentifier = item["url"]
       return tabItem
     }
     applySelection(currentSelectedIndex, animated: false)
   }
-
-  private var currentSelectedIndex = 0
 
   func setSelectedIndex(_ index: Int) {
     currentSelectedIndex = index
@@ -133,17 +140,16 @@ public class DatebookTabBarView: ExpoView, UITabBarDelegate {
     tabBar.isUserInteractionEnabled = !disabled
     // Dim, don't fake a different material, while chrome is suppressed
     // (a sheet/drawer/focus overlay is up).
-    tabBar.alpha = disabled ? 0.4 : 1
+    trayGlass.alpha = disabled ? 0.4 : 1
   }
 
   /// Datebook's own resolved in-app theme, not the phone's Dark Mode
-  /// setting — a `UITabBar` otherwise inherits `userInterfaceStyle` from the
+  /// setting — this view otherwise inherits `userInterfaceStyle` from the
   /// window, which tracks the device, not the app's selected appearance.
-  /// Overriding it here (rather than window-wide) scopes the effect to this
-  /// control and its Liquid Glass material/dynamic colors (`.secondaryLabel`
-  /// for unselected items, the glass tint) without touching any other native
-  /// chrome or system UI. Re-applying this never resets `selectedItem` or
-  /// recreates the bar.
+  /// Applied on `self` so it cascades to both `trayGlass`'s material and
+  /// `tabBar`'s dynamic colors (`.secondaryLabel` for unselected items)
+  /// without touching any other native chrome or system UI. Re-applying
+  /// this never resets `selectedItem` or recreates any view.
   func setInterfaceStyle(_ style: String?) {
     switch style {
     case "light":
