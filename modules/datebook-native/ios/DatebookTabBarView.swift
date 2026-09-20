@@ -1,6 +1,32 @@
 import ExpoModulesCore
 import UIKit
 
+/// A standalone `UITabBar` reports a fixed ~49pt `intrinsicContentSize`/
+/// `sizeThatFits` by default — a leftover from the assumption that a
+/// `UITabBarController` owns it. Even though Auto Layout still gives it
+/// whatever frame `DatebookTabBarView` is laid out at, the bar's own
+/// internal item layout consults its intrinsic/fitting size to decide how
+/// much vertical room the icon/label stack gets, so an unmodified bar
+/// squeezes its content into that ~49pt assumption inside a taller frame.
+/// Handing its own current bounds back through both queries makes the
+/// *system* item layout use the real height — React's style height (set on
+/// `DatebookTabBarView`, which this bar exactly fills) stays the only place
+/// that number is decided; nothing here hard-codes a second one.
+private final class SizedTabBar: UITabBar {
+  override var intrinsicContentSize: CGSize {
+    let height = bounds.height > 0 ? bounds.height : super.intrinsicContentSize.height
+    return CGSize(width: UIView.noIntrinsicMetric, height: height)
+  }
+
+  override func sizeThatFits(_ size: CGSize) -> CGSize {
+    var fitted = super.sizeThatFits(size)
+    if bounds.height > 0 {
+      fitted.height = bounds.height
+    }
+    return fitted
+  }
+}
+
 /// Wraps a real system `UITabBar` so the three-item nav tray gets Apple's own
 /// interactive Liquid Glass selection behavior (press-and-hold lift, finger
 /// tracking between items, accent preview, spring settle, Reduce Motion /
@@ -12,7 +38,7 @@ import UIKit
 public class DatebookTabBarView: ExpoView, UITabBarDelegate {
   let onSelect = EventDispatcher()
 
-  private let tabBar = UITabBar()
+  private let tabBar = SizedTabBar()
   private var isProgrammaticSelection = false
   private var pendingItems: [[String: String]] = []
 
@@ -85,6 +111,25 @@ public class DatebookTabBarView: ExpoView, UITabBarDelegate {
     // Dim, don't fake a different material, while chrome is suppressed
     // (a sheet/drawer/focus overlay is up).
     tabBar.alpha = disabled ? 0.4 : 1
+  }
+
+  /// Datebook's own resolved in-app theme, not the phone's Dark Mode
+  /// setting — a `UITabBar` otherwise inherits `userInterfaceStyle` from the
+  /// window, which tracks the device, not the app's selected appearance.
+  /// Overriding it here (rather than window-wide) scopes the effect to this
+  /// control and its Liquid Glass material/dynamic colors (`.secondaryLabel`
+  /// for unselected items, the glass tint) without touching any other native
+  /// chrome or system UI. Re-applying this never resets `selectedItem` or
+  /// recreates the bar.
+  func setInterfaceStyle(_ style: String?) {
+    switch style {
+    case "light":
+      overrideUserInterfaceStyle = .light
+    case "dark":
+      overrideUserInterfaceStyle = .dark
+    default:
+      overrideUserInterfaceStyle = .unspecified
+    }
   }
 
   // MARK: UITabBarDelegate

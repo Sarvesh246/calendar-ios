@@ -101,6 +101,9 @@ public class DatebookNativeModule: Module {
       Prop("disabled") { (view: DatebookTabBarView, disabled: Bool) in
         view.setDisabled(disabled)
       }
+      Prop("interfaceStyle") { (view: DatebookTabBarView, style: String?) in
+        view.setInterfaceStyle(style)
+      }
       Events("onSelect")
     }
 
@@ -111,6 +114,9 @@ public class DatebookNativeModule: Module {
       }
       Prop("accessibilityLabel") { (view: DatebookGlassButtonView, label: String?) in
         view.setLabel(label)
+      }
+      Prop("interfaceStyle") { (view: DatebookGlassButtonView, style: String?) in
+        view.setInterfaceStyle(style)
       }
       Events("onPress")
     }

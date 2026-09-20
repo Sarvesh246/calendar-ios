@@ -74,6 +74,20 @@ public class DatebookGlassButtonView: ExpoView {
     button.accessibilityLabel = label?.isEmpty == false ? label : "Add"
   }
 
+  /// Same reasoning as `DatebookTabBarView.setInterfaceStyle`: Datebook's
+  /// resolved in-app theme, not the phone's Dark Mode setting, must drive
+  /// this button's glass material and `.label` foreground.
+  func setInterfaceStyle(_ style: String?) {
+    switch style {
+    case "light":
+      overrideUserInterfaceStyle = .light
+    case "dark":
+      overrideUserInterfaceStyle = .dark
+    default:
+      overrideUserInterfaceStyle = .unspecified
+    }
+  }
+
   @objc private func handleTap() {
     onPress([:])
   }

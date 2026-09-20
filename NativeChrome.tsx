@@ -77,6 +77,15 @@ const TABS: { label: string; url: string; symbol: SFSymbol }[] = [
 
 const ASK_SLOT = 42;
 
+// Single source of truth for the dock's real height: this is the RN layout
+// height actually given to the native tab bar and "+" button (their own
+// styles below just reference it), and it's what `SizedTabBar` in
+// DatebookTabBarView.swift reports back to UIKit's own item-layout code —
+// nothing on the Swift side hard-codes a second number. 68pt (vs. the old
+// 62pt) gives the standalone UITabBar's icon/label stack the vertical
+// breathing room a hosted, controller-managed tab bar gets by default.
+const DOCK_HEIGHT = 68;
+
 // The theme's own ink/inkFaint are tuned for AA contrast on a flat card
 // surface, not on frosted glass sitting over whatever content is scrolling
 // underneath it. Chrome glyphs need their own fixed, always-legible neutrals
@@ -394,6 +403,7 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
                 items={TABS.map((tab) => ({ label: tab.label, symbol: tab.symbol, url: tab.url }))}
                 selectedIndex={routeIndex}
                 tintColor={state.colors.accent}
+                interfaceStyle={state.appearance}
                 disabled={false}
                 onSelect={(event) => navigateToTab(event.nativeEvent.index)}
               />
@@ -419,6 +429,7 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
               <DatebookNativeGlassButton
                 style={styles.addButtonNative}
                 accessibilityLabel="Add item"
+                interfaceStyle={state.appearance}
                 disabled={false}
                 onPress={() => onAction({ type: "compose" })}
               />
@@ -493,19 +504,19 @@ const styles = StyleSheet.create({
   dockRow: {
     width: "100%",
     maxWidth: 420,
-    height: 62,
+    height: DOCK_HEIGHT,
     flexDirection: "row",
     alignItems: "stretch",
     gap: 12,
   },
   tabBarNative: {
     flex: 1,
-    height: 62,
+    height: DOCK_HEIGHT,
   },
   tabBarFallback: {
     flex: 1,
-    height: 62,
-    borderRadius: 31,
+    height: DOCK_HEIGHT,
+    borderRadius: DOCK_HEIGHT / 2,
     flexDirection: "row",
     alignItems: "stretch",
     padding: 4,
@@ -530,8 +541,11 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === "ios" ? "System" : undefined,
   },
   addButtonNative: {
-    width: 62,
-    height: 62,
+    // Same height as the tray so both stretch to fill `dockRow` identically
+    // and stay vertically centered together; width equal to height keeps it
+    // a true circle.
+    width: DOCK_HEIGHT,
+    height: DOCK_HEIGHT,
   },
   focusExit: {
     position: "absolute",
