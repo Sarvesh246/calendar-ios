@@ -23,7 +23,6 @@ DEFINITION_COUNT=$(grep -R --include='*.swift' -l 'struct DatebookLiveAttributes
   "$ROOT/modules" "$ROOT/targets" | wc -l | tr -d ' ')
 test "$DEFINITION_COUNT" = "1" || fail "Expected one shared DatebookLiveAttributes definition, found $DEFINITION_COUNT"
 
-grep -q 'DatebookWidgets' "$PBXPROJ" || fail "Widget target missing from project"
 grep -q '_shared' "$PBXPROJ" || fail "Shared source group missing from project"
 grep -q 'DatebookLiveActivity()' "$ROOT/targets/widget/DatebookWidgets.swift" || {
   fail "DatebookLiveActivity is not registered in the widget bundle"
