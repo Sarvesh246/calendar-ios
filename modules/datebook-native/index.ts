@@ -43,6 +43,30 @@ export type DatebookTabBarProps = ViewProps & {
   onSelect?: (event: { nativeEvent: { index: number } }) => void;
 };
 
+/** One entry in the shared Ask/Search/Filters/Schedule/Settings glass pill.
+ *  Boolean-ish fields are passed as "1"/"" (Expo's Prop bridge is simplest
+ *  and most reliably typed as a flat `[String: String]`, matching the tab
+ *  bar's own `items` prop above) rather than real booleans. */
+export type DatebookGlassBarItem = {
+  id: string;
+  symbol: string;
+  label: string;
+  active?: "1" | "";
+  accent?: "1" | "";
+  badge?: "1" | "";
+  /** "0" collapses the button to zero width with a spring, same as the old
+   *  RN `askReveal` interpolation — everything else should pass "1". */
+  visible?: "1" | "0";
+};
+
+export type DatebookGlassBarProps = ViewProps & {
+  items: DatebookGlassBarItem[];
+  tintColor?: string;
+  disabled?: boolean;
+  interfaceStyle?: DatebookInterfaceStyle;
+  onPress?: (event: { nativeEvent: { id: string } }) => void;
+};
+
 export type DatebookGlassButtonProps = ViewProps & {
   disabled?: boolean;
   accessibilityLabel?: string;
@@ -61,6 +85,16 @@ export type DatebookGlassButtonProps = ViewProps & {
 export function requireDatebookTabBarView() {
   try {
     return requireNativeViewManager<DatebookTabBarProps>("DatebookNative", "DatebookTabBarView");
+  } catch {
+    return null;
+  }
+}
+
+/** Real per-button `UIButton.Configuration.glass()` header pill (Ask/Search/
+ *  Filters/Schedule/Settings) — deliberately not a `UITabBar`. */
+export function requireDatebookGlassBarView() {
+  try {
+    return requireNativeViewManager<DatebookGlassBarProps>("DatebookNative", "DatebookGlassBarView");
   } catch {
     return null;
   }

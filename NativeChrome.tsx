@@ -1,6 +1,10 @@
 import { GlassView, isGlassEffectAPIAvailable } from "expo-glass-effect";
 import { SymbolView, type SFSymbol } from "expo-symbols";
-import { requireDatebookGlassButtonView, requireDatebookTabBarView } from "./modules/datebook-native";
+import {
+  requireDatebookGlassBarView,
+  requireDatebookGlassButtonView,
+  requireDatebookTabBarView,
+} from "./modules/datebook-native";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AccessibilityInfo,
@@ -21,6 +25,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 // per-render.
 const DatebookNativeTabBar = requireDatebookTabBarView();
 const DatebookNativeGlassButton = requireDatebookGlassButtonView();
+const DatebookNativeGlassBar = requireDatebookGlassBarView();
 
 export type NativeChromeState = {
   ready: boolean;
@@ -76,6 +81,12 @@ const TABS: { label: string; url: string; symbol: SFSymbol }[] = [
 ];
 
 const ASK_SLOT = 42;
+// Total content width of the native header pill: 5 items × 42pt + 4 × 1pt
+// stack spacing + 6pt padding (3 a side) — see DatebookGlassBarView.swift's
+// `itemSize`/stack spacing/edge insets, which this must stay in lockstep
+// with. Collapsed drops the Ask slot's 42pt + its one spacing gap.
+const HEADER_BAR_WIDTH = 5 * 42 + 4 * 1 + 6;
+const HEADER_BAR_COLLAPSED_WIDTH = HEADER_BAR_WIDTH - 42 - 1;
 
 // RN layout height/width given to each native control (their styles below
 // just reference these). DatebookTabBarView.swift now embeds a real
@@ -116,7 +127,7 @@ const ADD_BUTTON_VERTICAL_LIFT = 20;
 // button a bit more room on the right, independent of the 12pt gap
 // between it and the tray — small enough that the two glass shapes don't
 // visually bridge/stretch toward each other.
-const ADD_BUTTON_EDGE_INSET = 4;
+const ADD_BUTTON_EDGE_INSET = 10;
 
 // The theme's own ink/inkFaint are tuned for AA contrast on a flat card
 // surface, not on frosted glass sitting over whatever content is scrolling
@@ -369,8 +380,11 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
   const navigateToTab = useCallback((index: number) => {
     const tab = TABS[index];
     if (!tab) return;
-    if (state.pathname !== tab.url) onAction({ type: "navigate", url: tab.url });
-  }, [onAction, state.pathname]);
+    // Always dispatch, even for the already-active tab: the web side turns a
+    // same-route re-tap into "scroll to top" rather than treating it as a
+    // no-op (see native-shell-sync.tsx's "navigate" handler).
+    onAction({ type: "navigate", url: tab.url });
+  }, [onAction]);
 
   if (!state.ready || state.obscured) return null;
 
@@ -393,23 +407,63 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
 
   return (
     <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-      <GlassSurface state={state} reduceTransparency={reduceTransparency} glassStyle="regular" tintColor={state.colors.surface} style={[styles.headerCluster, { top: insets.top + 9 }]}>
+      {DatebookNativeGlassBar ? (
         <Animated.View
-          pointerEvents={state.inRoom ? "none" : "auto"}
-          style={{
-            width: askReveal.interpolate({ inputRange: [0, 1], outputRange: [0, ASK_SLOT] }),
-            opacity: askReveal,
-            overflow: "hidden",
-            borderRadius: ASK_SLOT / 2,
-          }}
+          style={[
+            styles.headerCluster,
+            styles.headerClusterNative,
+            {
+              top: insets.top + 9,
+              width: askReveal.interpolate({
+                inputRange: [0, 1],
+                outputRange: [HEADER_BAR_COLLAPSED_WIDTH, HEADER_BAR_WIDTH],
+              }),
+            },
+          ]}
         >
-          <ChromeButton label="Ask" symbol="sparkles" state={state} reduceMotion={reduceMotion} accent onPress={() => onAction({ type: "ask" })} />
+          <DatebookNativeGlassBar
+            style={styles.headerClusterFill}
+            interfaceStyle={state.appearance}
+            tintColor={state.colors.accent}
+            disabled={false}
+            items={[
+              { id: "ask", symbol: "sparkles", label: "Ask", accent: "1", visible: state.inRoom ? "0" : "1" },
+              { id: "search", symbol: "magnifyingglass", label: "Search", visible: "1" },
+              { id: "filters", symbol: "line.3.horizontal.decrease", label: "Filters", badge: state.filtersActive ? "1" : "", visible: "1" },
+              { id: "schedule", symbol: "calendar.badge.clock", label: "Schedule", active: state.pathname === "/schedule" ? "1" : "", visible: "1" },
+              { id: "settings", symbol: "gearshape", label: "Settings", active: state.pathname === "/settings" ? "1" : "", visible: "1" },
+            ]}
+            onPress={(event) => {
+              const id = event.nativeEvent.id;
+              if (id === "ask") onAction({ type: "ask" });
+              else if (id === "search") onAction({ type: "search" });
+              else if (id === "filters") onAction({ type: "filters" });
+              else if (id === "schedule") onAction({ type: "navigate", url: "/schedule" });
+              else if (id === "settings") onAction({ type: "navigate", url: "/settings" });
+            }}
+          />
         </Animated.View>
-        <ChromeButton label="Search" symbol="magnifyingglass" state={state} reduceMotion={reduceMotion} onPress={() => onAction({ type: "search" })} />
-        <ChromeButton label="Filters" symbol="line.3.horizontal.decrease" state={state} reduceMotion={reduceMotion} badge={state.filtersActive} onPress={() => onAction({ type: "filters" })} />
-        <ChromeButton label="Schedule" symbol="calendar.badge.clock" state={state} reduceMotion={reduceMotion} active={state.pathname === "/schedule"} onPress={() => onAction({ type: "navigate", url: "/schedule" })} />
-        <ChromeButton label="Settings" symbol="gearshape" state={state} reduceMotion={reduceMotion} active={state.pathname === "/settings"} onPress={() => onAction({ type: "navigate", url: "/settings" })} />
-      </GlassSurface>
+      ) : (
+        // Non-iOS or a client without the native module: fall back to the
+        // JS glass-material wrapper around plain touchables.
+        <GlassSurface state={state} reduceTransparency={reduceTransparency} glassStyle="regular" tintColor={state.colors.surface} style={[styles.headerCluster, { top: insets.top + 9 }]}>
+          <Animated.View
+            pointerEvents={state.inRoom ? "none" : "auto"}
+            style={{
+              width: askReveal.interpolate({ inputRange: [0, 1], outputRange: [0, ASK_SLOT] }),
+              opacity: askReveal,
+              overflow: "hidden",
+              borderRadius: ASK_SLOT / 2,
+            }}
+          >
+            <ChromeButton label="Ask" symbol="sparkles" state={state} reduceMotion={reduceMotion} accent onPress={() => onAction({ type: "ask" })} />
+          </Animated.View>
+          <ChromeButton label="Search" symbol="magnifyingglass" state={state} reduceMotion={reduceMotion} onPress={() => onAction({ type: "search" })} />
+          <ChromeButton label="Filters" symbol="line.3.horizontal.decrease" state={state} reduceMotion={reduceMotion} badge={state.filtersActive} onPress={() => onAction({ type: "filters" })} />
+          <ChromeButton label="Schedule" symbol="calendar.badge.clock" state={state} reduceMotion={reduceMotion} active={state.pathname === "/schedule"} onPress={() => onAction({ type: "navigate", url: "/schedule" })} />
+          <ChromeButton label="Settings" symbol="gearshape" state={state} reduceMotion={reduceMotion} active={state.pathname === "/settings"} onPress={() => onAction({ type: "navigate", url: "/settings" })} />
+        </GlassSurface>
+      )}
 
       {!keyboardVisible && (
         <View
@@ -521,6 +575,22 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     zIndex: 40,
     elevation: 40,
+  },
+  // Overrides for the native-glass path: a fixed-height capsule with no RN
+  // padding (DatebookGlassBarView lays out its own buttons/insets), whose
+  // width is driven by the Animated interpolation above instead of Yoga
+  // sizing to flex children — there are none, the native view is a leaf.
+  headerClusterNative: {
+    height: 48,
+    minHeight: undefined,
+    flexDirection: undefined,
+    alignItems: undefined,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    borderRadius: 24,
+  },
+  headerClusterFill: {
+    flex: 1,
   },
   chromeButton: {
     width: 42,

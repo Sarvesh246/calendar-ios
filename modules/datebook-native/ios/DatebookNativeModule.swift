@@ -107,6 +107,24 @@ public class DatebookNativeModule: Module {
       Events("onSelect")
     }
 
+    // The shared Ask/Search/Filters/Schedule/Settings glass pill — real
+    // per-button UIButton.Configuration.glass() controls, not a tab bar.
+    View(DatebookGlassBarView.self) {
+      Prop("items") { (view: DatebookGlassBarView, items: [[String: String]]) in
+        view.setItems(items)
+      }
+      Prop("tintColor") { (view: DatebookGlassBarView, hex: String?) in
+        view.setTint(hex)
+      }
+      Prop("disabled") { (view: DatebookGlassBarView, disabled: Bool) in
+        view.setDisabled(disabled)
+      }
+      Prop("interfaceStyle") { (view: DatebookGlassBarView, style: String?) in
+        view.setInterfaceStyle(style)
+      }
+      Events("onPress")
+    }
+
     // The separate circular "+" glass control.
     View(DatebookGlassButtonView.self) {
       Prop("disabled") { (view: DatebookGlassButtonView, disabled: Bool) in
