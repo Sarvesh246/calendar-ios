@@ -11,6 +11,23 @@ fail() {
   exit 1
 }
 
+# `strings <big binary> | grep -q PATTERN` is a false-negative trap under
+# `pipefail`: `grep -q` exits the instant it finds a match, closing its
+# stdin — `strings` is often still mid-write on a multi-MB Swift binary, so
+# it gets SIGPIPE and errors ("strings: failed to flush output"). Under
+# `pipefail` that makes the *pipeline's* exit status non-zero even though
+# grep already found the match, so `|| fail ...` fires on a false alarm.
+# Disabling pipefail for just this call (and reading grep's own status, not
+# the pipeline's) fixes that without changing what's being checked.
+binary_contains() {
+  local file="$1" pattern="$2"
+  set +o pipefail
+  strings "$file" | grep -q "$pattern"
+  local status=$?
+  set -o pipefail
+  return "$status"
+}
+
 echo "Embedded plug-ins:"
 find "$APP/PlugIns" -maxdepth 2 -print 2>/dev/null || true
 test -d "$APP" || fail "Missing app bundle: $APP"
@@ -30,10 +47,10 @@ test "$EXT_ID" = 'com.sarveshjagtap.datebook.widgets' || fail "Unexpected widget
 test "$POINT" = 'com.apple.widgetkit-extension' || fail "Wrong extension point: $POINT"
 test "$SUPPORTS" = 'true' && test "$EXT_SUPPORTS" = 'true' || fail "Live Activity plist support missing: app=$SUPPORTS extension=$EXT_SUPPORTS"
 test -x "$EXT/$EXECUTABLE" || fail "Widget executable missing"
-strings "$EXT/$EXECUTABLE" | grep -q 'DatebookLiveActivity' || {
+binary_contains "$EXT/$EXECUTABLE" 'DatebookLiveActivity' || {
   fail "Compiled widget does not contain DatebookLiveActivity"
 }
-strings "$APP/$APP_EXECUTABLE" | grep -q 'DatebookLiveManager' || {
+binary_contains "$APP/$APP_EXECUTABLE" 'DatebookLiveManager' || {
   fail "Shared Live Activity lifecycle manager is missing from the app target"
 }
 
