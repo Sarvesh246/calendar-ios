@@ -104,7 +104,7 @@ public class DatebookNativeModule: Module {
       Prop("interfaceStyle") { (view: DatebookTabBarView, style: String?) in
         view.setInterfaceStyle(style)
       }
-      Events("onSelect")
+      Events("onSelect", "onMeasuredHeight")
     }
 
     // The separate circular "+" glass control.
