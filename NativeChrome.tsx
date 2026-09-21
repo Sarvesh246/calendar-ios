@@ -109,6 +109,14 @@ const DOCK_DOWNWARD_OFFSET = 14;
 // own visible position up to meet it, without touching either control's
 // real size.
 const ADD_BUTTON_VERTICAL_LIFT = 20;
+// Optical horizontal correction: dockWrap's left/right insets are already
+// numerically equal (Math.max(12, insets.left + 8) vs the same on the
+// right), but a circular control reads as sitting closer to the screen
+// edge than a rounded-rect one at an identical margin. This gives the
+// button a bit more room on the right, independent of the 12pt gap
+// between it and the tray — small enough that the two glass shapes don't
+// visually bridge/stretch toward each other.
+const ADD_BUTTON_EDGE_INSET = 4;
 
 // The theme's own ink/inkFaint are tuned for AA contrast on a flat card
 // surface, not on frosted glass sitting over whatever content is scrolling
@@ -470,6 +478,8 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
                 style={styles.addButtonNative}
                 accessibilityLabel="Add item"
                 interfaceStyle={state.appearance}
+                tintColor={state.colors.accent}
+                foregroundColor={state.colors.accentInk}
                 disabled={false}
                 onPress={() => onAction({ type: "compose" })}
               />
@@ -598,7 +608,10 @@ const styles = StyleSheet.create({
     // Width equal to height keeps it a true circle. `bottom` is a real
     // layout offset (not a transform), so the touch target moves with the
     // visible control — see ADD_BUTTON_VERTICAL_LIFT above for why.
+    // `marginRight` is the matching horizontal optical correction — see
+    // ADD_BUTTON_EDGE_INSET above.
     bottom: ADD_BUTTON_VERTICAL_LIFT,
+    marginRight: ADD_BUTTON_EDGE_INSET,
     width: ADD_BUTTON_SIZE,
     height: ADD_BUTTON_SIZE,
   },

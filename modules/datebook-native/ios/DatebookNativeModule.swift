@@ -118,6 +118,12 @@ public class DatebookNativeModule: Module {
       Prop("interfaceStyle") { (view: DatebookGlassButtonView, style: String?) in
         view.setInterfaceStyle(style)
       }
+      Prop("tintColor") { (view: DatebookGlassButtonView, hex: String?) in
+        view.setTint(hex)
+      }
+      Prop("foregroundColor") { (view: DatebookGlassButtonView, hex: String?) in
+        view.setForeground(hex)
+      }
       Events("onPress")
     }
   }
