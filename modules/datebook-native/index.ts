@@ -47,6 +47,13 @@ export type DatebookGlassButtonProps = ViewProps & {
   disabled?: boolean;
   accessibilityLabel?: string;
   interfaceStyle?: DatebookInterfaceStyle;
+  /** A constant accent tint on the glass itself (not just on press) — an
+   *  explicit design choice, which is what justifies `.prominentGlass()`
+   *  over plain `.glass()` on the native side. */
+  tintColor?: string;
+  /** The plus icon's color, read against `tintColor` — pass the theme's
+   *  on-accent ink color, not a fixed light/dark value. */
+  foregroundColor?: string;
   onPress?: (event: { nativeEvent: Record<string, never> }) => void;
 };
 
