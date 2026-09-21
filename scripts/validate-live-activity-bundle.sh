@@ -33,7 +33,7 @@ test -x "$EXT/$EXECUTABLE" || fail "Widget executable missing"
 strings "$EXT/$EXECUTABLE" | grep -q 'DatebookLiveActivity' || {
   fail "Compiled widget does not contain DatebookLiveActivity"
 }
-strings "$APP/$APP_EXECUTABLE" | grep -q 'DatebookLiveBridge' || {
+strings "$APP/$APP_EXECUTABLE" | grep -q 'DatebookLiveManager' || {
   fail "Shared Live Activity lifecycle manager is missing from the app target"
 }
 
