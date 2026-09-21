@@ -90,15 +90,17 @@ const ASK_SLOT = 42;
 // footprint so this doesn't shift the "+" button's position.
 const TRAY_HEIGHT = 64;
 const TRAY_TOUCH_AREA_HEIGHT = 160;
-// A prior attempt sized this off a native "measured height" event instead
-// of a constant, since a UITabBarController composes the bar's real height
-// itself rather than React deciding it — but the measurement fired before
-// the controller's own layout had settled for that pass, reporting an
-// inflated value that ballooned the button and (via dockRow's height)
-// visibly raised the whole dock. Reverted to a plain static value; 78
-// (up from 64) matches the taller tray this UITabBarController now
-// produces better than the old size did.
-const ADD_BUTTON_SIZE = 78;
+// Same control height as the tray, not an independent number — a prior
+// attempt at 78 made the button visibly larger than the tray's 64pt
+// layout height. (An earlier attempt to size this off a native "measured
+// height" event was also reverted: the measurement fired before
+// UITabBarController's own layout had settled for that pass, reporting an
+// inflated value that ballooned the button and the dock's position.)
+const ADD_BUTTON_SIZE = TRAY_HEIGHT;
+// How much lower than its prior resting position (insets.bottom + 1) the
+// whole dock sits — applied once, to dockWrap, so the tray and button move
+// together as a single unit.
+const DOCK_DOWNWARD_OFFSET = 6;
 
 // The theme's own ink/inkFaint are tuned for AA contrast on a flat card
 // surface, not on frosted glass sitting over whatever content is scrolling
@@ -402,7 +404,7 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
               // A single shared offset for the whole dock (tray + button
               // together), not a per-control adjustment, so they stay
               // exactly aligned with each other.
-              bottom: insets.bottom + 1,
+              bottom: Math.max(6, insets.bottom + 1 - DOCK_DOWNWARD_OFFSET),
               left: Math.max(12, insets.left + 8),
               right: Math.max(12, insets.right + 8),
             },
