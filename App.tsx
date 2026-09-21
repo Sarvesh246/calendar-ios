@@ -347,7 +347,14 @@ export default function App() {
 
       if (message.type === "startTestLiveActivity") {
         const native = datebookNative();
-        if (!native) return;
+        if (!native) {
+          pushBridge("liveActivityStatus", {
+            success: false,
+            code: "unsupported",
+            message: "The Datebook native module is unavailable.",
+          });
+          return;
+        }
         void native
           .startTestLiveActivity()
           .then(() => publishLiveStatus())
@@ -364,7 +371,14 @@ export default function App() {
 
       if (message.type === "stopAllLiveActivities") {
         const native = datebookNative();
-        if (!native) return;
+        if (!native) {
+          pushBridge("liveActivityStatus", {
+            success: false,
+            code: "unsupported",
+            message: "The Datebook native module is unavailable.",
+          });
+          return;
+        }
         void native
           .stopAllLiveActivities()
           .then(() => publishLiveStatus())
