@@ -97,10 +97,18 @@ const TRAY_TOUCH_AREA_HEIGHT = 160;
 // UITabBarController's own layout had settled for that pass, reporting an
 // inflated value that ballooned the button and the dock's position.)
 const ADD_BUTTON_SIZE = TRAY_HEIGHT;
-// How much lower than its prior resting position (insets.bottom + 1) the
+// How much lower than its original resting position (insets.bottom + 1) the
 // whole dock sits — applied once, to dockWrap, so the tray and button move
 // together as a single unit.
-const DOCK_DOWNWARD_OFFSET = 6;
+const DOCK_DOWNWARD_OFFSET = 14;
+// The visible UITabBarController pill renders higher within its 160pt
+// native host than its 64pt RN slot is centered at (the controller's own
+// content/safe-area layout, not something dockRow's alignItems: "center"
+// can see or correct — it only knows about the wrapper's box, not where
+// the pill actually draws inside it). This nudges just the "+" button's
+// own visible position up to meet it, without touching either control's
+// real size.
+const ADD_BUTTON_VERTICAL_LIFT = 20;
 
 // The theme's own ink/inkFaint are tuned for AA contrast on a flat card
 // surface, not on frosted glass sitting over whatever content is scrolling
@@ -587,7 +595,10 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === "ios" ? "System" : undefined,
   },
   addButtonNative: {
-    // Width equal to height keeps it a true circle.
+    // Width equal to height keeps it a true circle. `bottom` is a real
+    // layout offset (not a transform), so the touch target moves with the
+    // visible control — see ADD_BUTTON_VERTICAL_LIFT above for why.
+    bottom: ADD_BUTTON_VERTICAL_LIFT,
     width: ADD_BUTTON_SIZE,
     height: ADD_BUTTON_SIZE,
   },
