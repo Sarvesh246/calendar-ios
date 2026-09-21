@@ -8,6 +8,7 @@ on:
   push:
     branches:
       - master
+      - "codex/**"
     paths:
       - ".github/workflows/build-unsigned-ipa.yml"
       - "App.tsx"
