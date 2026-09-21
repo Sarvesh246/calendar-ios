@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="${1:-$PWD}"
 PBXPROJ=$(find "$ROOT/ios" -name project.pbxproj -print -quit)
-APP_ENTITLEMENTS=$(find "$ROOT/ios" -path '*/Datebook*.entitlements' ! -path '*/.targets/*' -print -quit)
+APP_ENTITLEMENTS=$(find "$ROOT/ios" -name '*.entitlements' ! -path '*/.targets/*' -print -quit)
 EXT_ENTITLEMENTS=$(find "$ROOT/ios/.targets/DatebookWidgets" -name '*.entitlements' -print -quit 2>/dev/null || true)
 SHARED_SOURCE="$ROOT/targets/widget/_shared/DatebookLiveSupport.swift"
 
