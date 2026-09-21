@@ -255,6 +255,18 @@ private actor DatebookLiveManager {
     }
     if let primary {
       await primary.update(nextContent)
+      let observedState = stateName(primary.activityState)
+      guard observedState == "active" || observedState == "stale" else {
+        return remember(DatebookLiveOperationResult(
+          success: false,
+          code: "updateFailed",
+          message: "ActivityKit moved the activity to \(observedState) during update.",
+          activityId: primary.id,
+          activityState: observedState,
+          activeCount: matchingActivities().count,
+          operation: "update"
+        ))
+      }
       logger.notice("Updated Datebook Live Activity mode \(state.mode.rawValue, privacy: .public)")
       return remember(DatebookLiveOperationResult(
         success: true,
@@ -409,12 +421,19 @@ private actor DatebookLiveManager {
     let activities = matchingActivities()
     let storedSnapshot = try? loadSnapshot(nil)
     let last = lastResult()
+    let baseSuccess = last?.success ?? true
+    let baseCode = activities.isEmpty
+      ? (baseSuccess ? "ready" : (last?.code ?? "unknownError"))
+      : "alreadyRunning"
+    let baseMessage = activities.isEmpty
+      ? (baseSuccess
+          ? "ActivityKit is ready. No Datebook activity is currently visible."
+          : (last?.message ?? "The last Live Activity operation failed."))
+      : "Datebook has \(activities.count) active Live Activity."
     var result: [String: Any] = [
-      "success": true,
-      "code": activities.isEmpty ? "ready" : "alreadyRunning",
-      "message": activities.isEmpty
-        ? "ActivityKit is ready. No Datebook activity is currently visible."
-        : "Datebook has \(activities.count) active Live Activity.",
+      "success": activities.isEmpty ? baseSuccess : true,
+      "code": baseCode,
+      "message": baseMessage,
       "supported": true,
       "activitiesEnabled": ActivityAuthorizationInfo().areActivitiesEnabled,
       "activeCount": activities.count,
