@@ -293,6 +293,11 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
   const [reduceTransparency, setReduceTransparency] = useState(false);
   const [reduceMotion, setReduceMotion] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  // The tab bar's real rendered height is composed by UITabBarController
+  // itself, not decided by the `style` height React gives it — so the "+"
+  // button is sized off the measured value the native view reports back,
+  // falling back to ADD_BUTTON_SIZE until the first measurement arrives.
+  const [measuredTrayHeight, setMeasuredTrayHeight] = useState(ADD_BUTTON_SIZE);
   const askReveal = useRef(new Animated.Value(state.inRoom ? 0 : 1)).current;
 
   // -1 means the current route has no matching tab (Settings/Schedule):
@@ -391,11 +396,10 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
           style={[
             styles.dockWrap,
             {
-              // 5pt lower than the tray's earlier resting position — a
-              // single shared offset for the whole dock (tray + button
+              // A single shared offset for the whole dock (tray + button
               // together), not a per-control adjustment, so they stay
               // exactly aligned with each other.
-              bottom: insets.bottom + 5,
+              bottom: insets.bottom + 1,
               left: Math.max(12, insets.left + 8),
               right: Math.max(12, insets.right + 8),
             },
@@ -405,7 +409,7 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
               never merged into one droplet. Each is a real UIKit control
               (UITabBar / UIButton.Configuration.glass()) on iOS; UIKit owns
               all press, drag, refraction and spring behavior for both. */}
-          <View style={styles.dockRow}>
+          <View style={[styles.dockRow, { height: Math.max(TRAY_HEIGHT, measuredTrayHeight) }]}>
             {DatebookNativeTabBar ? (
               // A UITabBarController-embedded tab bar renders its taller,
               // properly-proportioned floating treatment only when given
@@ -428,6 +432,7 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
                   interfaceStyle={state.appearance}
                   disabled={false}
                   onSelect={(event) => navigateToTab(event.nativeEvent.index)}
+                  onMeasuredHeight={(event) => setMeasuredTrayHeight(event.nativeEvent.height)}
                 />
               </View>
             ) : (
@@ -449,8 +454,13 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
             )}
 
             {DatebookNativeGlassButton ? (
+              // Sized to match the tab bar's actual measured height (a
+              // UIButton, unlike UITabBar, does stretch to fill whatever
+              // frame it's given, so this is a plain size — no equivalent
+              // workaround needed on this side) — kept as a wholly separate
+              // control, just made uniform with the tray beside it.
               <DatebookNativeGlassButton
-                style={styles.addButtonNative}
+                style={[styles.addButtonNative, { width: measuredTrayHeight, height: measuredTrayHeight }]}
                 accessibilityLabel="Add item"
                 interfaceStyle={state.appearance}
                 disabled={false}
@@ -527,7 +537,11 @@ const styles = StyleSheet.create({
   dockRow: {
     width: "100%",
     maxWidth: 420,
-    height: Math.max(TRAY_HEIGHT, ADD_BUTTON_SIZE),
+    // Height comes from the render call (Math.max(TRAY_HEIGHT,
+    // measuredTrayHeight)) since the real tray height is only known once
+    // the native view reports it; this is just a sane pre-measurement
+    // fallback.
+    height: TRAY_HEIGHT,
     flexDirection: "row",
     // Center rather than stretch: the tray and the "+" button are
     // deliberately different heights now, so each keeps its own real size
@@ -578,10 +592,9 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === "ios" ? "System" : undefined,
   },
   addButtonNative: {
-    // Kept at its existing size rather than tied to the tray's height —
-    // width equal to height keeps it a true circle; `dockRow`'s centered
-    // alignment (not stretch) is what keeps it vertically centered against
-    // the now-taller tray beside it.
+    // Fallback size until the first onMeasuredHeight event arrives (the
+    // render call overrides width/height with the measured tray height);
+    // width equal to height keeps it a true circle either way.
     width: ADD_BUTTON_SIZE,
     height: ADD_BUTTON_SIZE,
   },
