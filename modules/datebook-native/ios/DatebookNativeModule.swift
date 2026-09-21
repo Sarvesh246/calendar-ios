@@ -1,16 +1,48 @@
-import ActivityKit
 import AppIntents
 import CoreSpotlight
 import ExpoModulesCore
 import Foundation
+import ObjectiveC.runtime
 import WidgetKit
 
 let appGroupId = "group.com.sarveshjagtap.datebook"
 let snapshotKey = "datebook.snapshot"
 let inboxKey = "datebook.inbox"
+let liveRequestNotification = Notification.Name("DatebookLiveActivity.Request")
 
 func appGroupDefaults() -> UserDefaults {
   UserDefaults(suiteName: appGroupId) ?? .standard
+}
+
+private func callLiveBridge(operation: String, snapshot: String? = nil) async -> [String: Any] {
+  guard let bridge = NSClassFromString("DatebookLiveBridge") else {
+    return [
+      "success": false,
+      "code": "unknownError",
+      "message": "The app-target Live Activity bridge is missing.",
+      "operation": operation,
+    ]
+  }
+  let installSelector = NSSelectorFromString("install")
+  guard let method = class_getClassMethod(bridge, installSelector) else {
+    return [
+      "success": false,
+      "code": "unknownError",
+      "message": "The app-target Live Activity bridge cannot be initialized.",
+      "operation": operation,
+    ]
+  }
+  typealias InstallFunction = @convention(c) (AnyClass, Selector) -> Void
+  let install = unsafeBitCast(method_getImplementation(method), to: InstallFunction.self)
+  install(bridge, installSelector)
+  return await withCheckedContinuation { continuation in
+    let completion: ([String: Any]) -> Void = { result in
+      continuation.resume(returning: result)
+    }
+    var userInfo: [String: Any] = ["operation": operation, "completion": completion]
+    if let snapshot { userInfo["snapshot"] = snapshot }
+    NotificationCenter.default.post(name: liveRequestNotification, object: nil, userInfo: userInfo)
+  }
 }
 
 public class DatebookNativeModule: Module {
@@ -41,38 +73,65 @@ public class DatebookNativeModule: Module {
       }
     }
 
-    AsyncFunction("startLive") { (kind: String, id: String, title: String, subtitle: String, start: Double, end: Double, color: String, running: Bool) in
-      if #available(iOS 16.2, *) {
-        let attrs = DatebookLiveAttributes(id: "\(kind):\(id)")
-        let state = DatebookLiveAttributes.ContentState(
-          kind: kind, title: title, subtitle: subtitle, start: start, end: end, color: color, running: running
-        )
-        let stale = end > 0 ? Date(timeIntervalSince1970: end / 1000) : Date().addingTimeInterval(8 * 60 * 60)
-        let content = ActivityContent(state: state, staleDate: stale, relevanceScore: running ? 100 : 40)
-        for activity in Activity<DatebookLiveAttributes>.activities
-          where activity.attributes.id.hasPrefix("\(kind):") && activity.attributes.id != attrs.id {
-          await activity.end(nil, dismissalPolicy: .immediate)
+    AsyncFunction("getLiveActivityStatus") { () async -> [String: Any] in
+      await callLiveBridge(operation: "status")
+    }
+
+    AsyncFunction("startTestLiveActivity") { () async -> [String: Any] in
+      await callLiveBridge(operation: "testStart")
+    }
+
+    AsyncFunction("stopAllLiveActivities") { () async -> [String: Any] in
+      await callLiveBridge(operation: "stopAll")
+    }
+
+    AsyncFunction("reconcileLiveActivities") { (snapshot: String?) async -> [String: Any] in
+      await callLiveBridge(operation: "reconcile", snapshot: snapshot)
+    }
+
+    AsyncFunction("updateLive") { (snapshot: String) async -> [String: Any] in
+      await callLiveBridge(operation: "reconcile", snapshot: snapshot)
+    }
+
+    AsyncFunction("startLive") { (kind: String, id: String, title: String, subtitle: String, start: Double, end: Double, color: String, running: Bool) async -> [String: Any] in
+      let mode = kind == "focus" ? "focus" : (running ? "current" : "upcoming")
+      let snapshot: [String: Any] = [
+        "enabled": true,
+        "eligible": true,
+        "eligibilityReason": "Legacy Datebook snapshot is eligible.",
+        "mode": mode,
+        "title": title,
+        "subtitle": subtitle,
+        "startDate": start,
+        "endDate": end,
+        "remainingItemCount": 0,
+        "completedItemCount": 0,
+        "totalItemCount": 0,
+        "accentHex": color,
+        "hidesPrivateDetails": false,
+        "deepLink": "datebook://open?intent=item&item=\(id.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? id)",
+        "lastUpdated": Date().timeIntervalSince1970 * 1000,
+        "isRunning": running,
+      ]
+      do {
+        let data = try JSONSerialization.data(withJSONObject: snapshot)
+        guard let json = String(data: data, encoding: .utf8) else {
+          return ["success": false, "code": "unknownError", "message": "Could not encode legacy Live Activity state."]
         }
-        if let existing = Activity<DatebookLiveAttributes>.activities.first(where: { $0.attributes.id == attrs.id }) {
-          await existing.update(content)
-        } else if ActivityAuthorizationInfo().areActivitiesEnabled {
-          do {
-            _ = try Activity.request(attributes: attrs, content: content, pushType: nil)
-          } catch {
-            NSLog("Datebook Live Activity request failed: \(error)")
-          }
-        } else {
-          NSLog("Datebook Live Activity skipped: system disabled for this app")
-        }
+        return await callLiveBridge(operation: "reconcile", snapshot: json)
+      } catch {
+        return [
+          "success": false,
+          "code": "unknownError",
+          "message": "Could not encode legacy Live Activity state: \(error.localizedDescription)",
+          "errorType": String(reflecting: Swift.type(of: error)),
+        ]
       }
     }
 
-    AsyncFunction("endLive") { (kind: String) in
-      if #available(iOS 16.2, *) {
-        for activity in Activity<DatebookLiveAttributes>.activities where activity.attributes.id.hasPrefix("\(kind):") {
-          await activity.end(nil, dismissalPolicy: .immediate)
-        }
-      }
+    // Kept as a structured compatibility endpoint for older web deployments.
+    AsyncFunction("endLive") { (_: String) async -> [String: Any] in
+      await callLiveBridge(operation: "stopAll")
     }
 
     Function("readInbox") { () -> String? in

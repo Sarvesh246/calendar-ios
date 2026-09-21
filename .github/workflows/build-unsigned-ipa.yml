@@ -58,6 +58,9 @@ jobs:
       - name: Generate the native iOS project
         run: npx expo prebuild --platform ios
 
+      - name: Validate Live Activity target membership and entitlements
+        run: bash scripts/validate-live-activity-prebuild.sh "$PWD"
+
       - name: Archive (unsigned)
         run: |
           set -euo pipefail
@@ -76,7 +79,6 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            CODE_SIGN_ENTITLEMENTS="" \
             PROVISIONING_PROFILE_SPECIFIER="" \
             DEVELOPMENT_TEAM=""
 
@@ -85,12 +87,12 @@ jobs:
           set -euo pipefail
           mkdir -p build/Payload
           APP=$(ls -d build/App.xcarchive/Products/Applications/*.app | head -n1)
-          echo "PlugIns:"
-          ls -la "$APP/PlugIns" || { echo "Missing widget extension PlugIns — Live Activities will not appear"; exit 1; }
+          bash scripts/validate-live-activity-bundle.sh "$APP"
           cp -r "$APP" build/Payload/
           cd build
           zip -qr Datebook-unsigned.ipa Payload
-          ls -la Datebook-unsigned.ipa
+          shasum -a 256 Datebook-unsigned.ipa
+          du -h Datebook-unsigned.ipa
 
       - uses: actions/upload-artifact@v4
         with:
