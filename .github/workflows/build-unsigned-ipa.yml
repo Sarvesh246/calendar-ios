@@ -22,6 +22,7 @@ on:
       - "lib/**"
       - "modules/**"
       - "targets/**"
+      - "scripts/**"
 
 concurrency:
   group: unsigned-ios-ipa-${{ github.ref }}
