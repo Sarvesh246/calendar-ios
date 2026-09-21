@@ -78,16 +78,18 @@ const TABS: { label: string; url: string; symbol: SFSymbol }[] = [
 const ASK_SLOT = 42;
 
 // RN layout height/width given to each native control (their styles below
-// just reference these). DatebookTabBarView.swift is back to a single,
-// plain UITabBar with no outer capsule wrapper — an earlier attempt to
-// grow the tray's visible height with a wrapping UIVisualEffectView caused
-// a second, wrongly-shaped glass artifact behind the real bar on a
-// physical device, confirmed even after clipping it. A bare UITabBar's own
-// background renders at its native, content-hugging height regardless of
-// this frame — that's a known, separate limitation this constant doesn't
-// solve; it's just the container size, not a promise the visible material
-// fills it. TRAY_HEIGHT and ADD_BUTTON_SIZE are independent again.
+// just reference these). DatebookTabBarView.swift now embeds a real
+// UITabBarController rather than a bare UITabBar — a bare bar's own
+// background rendered at a fixed, content-hugging height no matter how it
+// was framed or sized, and a wrapping second glass view grew it but caused
+// illegal glass-in-glass nesting artifacts. A UITabBarController needs
+// real room above its bar for the (invisible, unused) content area its own
+// layout expects, so its native view is deliberately taller than the
+// visible dock and overflows upward — see TRAY_TOUCH_AREA_HEIGHT and
+// `tabBarNative` below. `tabBarSlot` keeps the pre-existing normal-flow
+// footprint so this doesn't shift the "+" button's position.
 const TRAY_HEIGHT = 64;
+const TRAY_TOUCH_AREA_HEIGHT = 160;
 const ADD_BUTTON_SIZE = 64;
 
 // The theme's own ink/inkFaint are tuned for AA contrast on a flat card
@@ -405,16 +407,29 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
               all press, drag, refraction and spring behavior for both. */}
           <View style={styles.dockRow}>
             {DatebookNativeTabBar ? (
-              <DatebookNativeTabBar
-                accessibilityRole="tablist"
-                style={styles.tabBarNative}
-                items={TABS.map((tab) => ({ label: tab.label, symbol: tab.symbol, url: tab.url }))}
-                selectedIndex={routeIndex}
-                tintColor={state.colors.accent}
-                interfaceStyle={state.appearance}
-                disabled={false}
-                onSelect={(event) => navigateToTab(event.nativeEvent.index)}
-              />
+              // A UITabBarController-embedded tab bar renders its taller,
+              // properly-proportioned floating treatment only when given
+              // real room above the bar for the (invisible, unused) content
+              // area a controller expects — a bare UITabBar's own
+              // background never grew past its default height no matter
+              // how it was framed. `tabBarSlot` keeps the normal-flow
+              // footprint (so the "+" button's position/gap don't move);
+              // the native view itself overflows upward out of that slot,
+              // and its own `hitTest` restricts real touches to the bar's
+              // visible frame so the extra transparent space above it
+              // still passes taps through to the page content.
+              <View style={styles.tabBarSlot}>
+                <DatebookNativeTabBar
+                  accessibilityRole="tablist"
+                  style={styles.tabBarNative}
+                  items={TABS.map((tab) => ({ label: tab.label, symbol: tab.symbol, url: tab.url }))}
+                  selectedIndex={routeIndex}
+                  tintColor={state.colors.accent}
+                  interfaceStyle={state.appearance}
+                  disabled={false}
+                  onSelect={(event) => navigateToTab(event.nativeEvent.index)}
+                />
+              </View>
             ) : (
               // Non-iOS (e.g. Android) or a client without the native module:
               // a plain JS row with no drag physics to fake. Liquid Glass is
@@ -521,9 +536,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
   },
-  tabBarNative: {
+  tabBarSlot: {
+    // Normal-flow spacer matching the tray's pre-existing footprint, so
+    // the "+" button's position and the row/dock gap don't move — the
+    // actual native view (below) overflows upward out of this slot.
     flex: 1,
     height: TRAY_HEIGHT,
+  },
+  tabBarNative: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: TRAY_TOUCH_AREA_HEIGHT,
   },
   tabBarFallback: {
     flex: 1,
