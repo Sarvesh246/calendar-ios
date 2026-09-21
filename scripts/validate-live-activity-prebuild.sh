@@ -26,7 +26,7 @@ grep -q 'struct DatebookLiveAttributes: ActivityAttributes' "$SHARED_SOURCE" || 
 }
 DUPLICATE_COUNT=$(grep -R --include='*.swift' --exclude='DatebookLiveSupport.swift' \
   -l 'struct DatebookLiveAttributes: ActivityAttributes' "$ROOT/modules" "$ROOT/targets" \
-  | wc -l | tr -d ' ')
+  | wc -l | tr -d ' ' || true)
 test "$DUPLICATE_COUNT" = "0" || fail "Found $DUPLICATE_COUNT duplicate DatebookLiveAttributes definition(s)"
 
 cmp -s "$SHARED_SOURCE" "$APP_SOURCE" || fail "App and widget targets are not compiling the same ActivityKit source"
