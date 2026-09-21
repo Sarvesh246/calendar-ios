@@ -33,6 +33,27 @@ export type NativeSnapshot = {
     startedAt: number;
     color?: string;
   } | null;
+  liveActivity: {
+    enabled: boolean;
+    eligible: boolean;
+    eligibilityReason: string;
+    mode: "day" | "upcoming" | "current" | "focus" | "allClear";
+    title: string;
+    subtitle?: string;
+    location?: string;
+    startDate?: number;
+    endDate?: number;
+    nextTitle?: string;
+    nextDate?: number;
+    remainingItemCount: number;
+    completedItemCount: number;
+    totalItemCount: number;
+    accentHex: string;
+    hidesPrivateDetails: boolean;
+    deepLink: string;
+    lastUpdated: number;
+    isRunning: boolean;
+  };
   spotlight: unknown[];
   calendarEvents: {
     id: string;

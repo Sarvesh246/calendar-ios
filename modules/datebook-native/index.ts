@@ -13,10 +13,55 @@ type Native = {
     end: number,
     color: string,
     running: boolean
-  ): Promise<void>;
-  endLive(kind: string): Promise<void>;
+  ): Promise<LiveActivityOperationResult>;
+  endLive(kind: string): Promise<LiveActivityOperationResult>;
+  updateLive(snapshot: string): Promise<LiveActivityOperationResult>;
+  getLiveActivityStatus(): Promise<LiveActivityStatus>;
+  startTestLiveActivity(): Promise<LiveActivityOperationResult>;
+  stopAllLiveActivities(): Promise<LiveActivityOperationResult>;
+  reconcileLiveActivities(snapshot: string | null): Promise<LiveActivityOperationResult>;
   readInbox(): string | null;
   clearInbox(): void;
+};
+
+export type LiveActivityResultCode =
+  | "started"
+  | "updated"
+  | "ended"
+  | "alreadyRunning"
+  | "ready"
+  | "activitiesDisabled"
+  | "extensionMissing"
+  | "notEligible"
+  | "requestFailed"
+  | "updateFailed"
+  | "endFailed"
+  | "unsupported"
+  | "unknownError";
+
+export type LiveActivityOperationResult = {
+  success: boolean;
+  code: LiveActivityResultCode;
+  message: string;
+  activityId?: string;
+  activityState?: string;
+  activeCount?: number;
+  errorType?: string;
+  operation?: string;
+};
+
+export type LiveActivityStatus = LiveActivityOperationResult & {
+  supported: boolean;
+  activitiesEnabled: boolean;
+  activityIds: string[];
+  activityStates: string[];
+  extensionPresent: boolean;
+  scheduleEligible: boolean;
+  eligibilityReason: string;
+  lastOperationCode?: string;
+  lastOperationMessage?: string;
+  lastErrorCode?: string | null;
+  lastErrorMessage?: string | null;
 };
 
 export function datebookNative(): Native | null {

@@ -11,7 +11,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.sarveshjagtap.datebook",
-      "buildNumber": "5",
+      "buildNumber": "6",
       "infoPlist": {
         "NSFaceIDUsageDescription": "Datebook uses Face ID to keep your calendar locked when you're not using it.",
         "NSSupportsLiveActivities": true,

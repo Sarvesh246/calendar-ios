@@ -5,6 +5,7 @@ import * as BackgroundFetch from "expo-background-fetch";
 import * as TaskManager from "expo-task-manager";
 import * as Linking from "expo-linking";
 import { datebookNative } from "../modules/datebook-native";
+import type { LiveActivityOperationResult } from "../modules/datebook-native";
 import type { NativeSnapshot } from "./snapshot-types";
 
 const BG_TASK = "datebook-refresh";
@@ -32,15 +33,22 @@ export async function requestNativeNotifications(): Promise<boolean> {
   return status === "granted";
 }
 
-export async function applySnapshot(snapshot: NativeSnapshot) {
+let lastLiveActivityResult: LiveActivityOperationResult | null = null;
+
+export function getLastLiveActivityResult() {
+  return lastLiveActivityResult;
+}
+
+export async function applySnapshot(snapshot: NativeSnapshot): Promise<LiveActivityOperationResult | null> {
   const native = datebookNative();
   await native?.writeSnapshot(JSON.stringify(snapshot));
   await native?.indexSpotlight(JSON.stringify(snapshot.spotlight ?? []));
   await Notifications.setBadgeCountAsync(Math.max(0, snapshot.badge ?? 0));
   await scheduleReminders(snapshot);
-  await syncLive(snapshot);
+  const liveResult = await syncLive(snapshot);
   if (snapshot.appleCalendarSync) await upsertCalendar(snapshot);
   await registerBackground();
+  return liveResult;
 }
 
 async function scheduleReminders(snapshot: NativeSnapshot) {
@@ -92,42 +100,34 @@ async function scheduleReminders(snapshot: NativeSnapshot) {
   }
 }
 
-async function syncLive(snapshot: NativeSnapshot) {
+async function syncLive(snapshot: NativeSnapshot): Promise<LiveActivityOperationResult | null> {
   const native = datebookNative();
-  if (!native) return;
+  if (!native) {
+    lastLiveActivityResult = {
+      success: false,
+      code: "unsupported",
+      message: "The Datebook native module is unavailable.",
+      operation: "reconcile",
+    };
+    return lastLiveActivityResult;
+  }
   try {
-    if (snapshot.liveClass) {
-      const c = snapshot.liveClass;
-      const subtitle =
-        c.phase === "live"
-          ? c.location
-            ? `Until ${new Date(c.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · ${c.location}`
-            : "In session"
-          : "Starting soon";
-      await native.startLive("class", c.id, c.title, subtitle, c.startsAt, c.endsAt, c.color, c.phase === "live");
-    } else {
-      await native.endLive("class");
+    const result = await native.reconcileLiveActivities(JSON.stringify(snapshot.liveActivity));
+    lastLiveActivityResult = result;
+    if (!result.success) {
+      console.warn(`[Datebook Live Activity] ${result.code}: ${result.message}`);
     }
-    if (snapshot.liveFocus) {
-      const f = snapshot.liveFocus;
-      const start = f.startedAt;
-      const end = f.targetEndsAt ?? start + Math.max(f.itemElapsedMs, 60_000);
-      const subtitle = f.running ? "On the clock" : "Paused";
-      await native.startLive(
-        "focus",
-        f.itemId,
-        f.title,
-        subtitle,
-        start,
-        end,
-        f.color ?? "#0A84FF",
-        f.running
-      );
-    } else {
-      await native.endLive("focus");
-    }
-  } catch {
-    /* Live Activities unavailable (disabled, or installer stripped the widget). */
+    return result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    lastLiveActivityResult = {
+      success: false,
+      code: "unknownError",
+      message: `Live Activity reconciliation failed: ${message}`,
+      operation: "reconcile",
+    };
+    console.error("[Datebook Live Activity] reconciliation threw", error);
+    return lastLiveActivityResult;
   }
 }
 

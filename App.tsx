@@ -21,6 +21,7 @@ import {
   requestNativeNotifications,
 } from "./lib/apply-snapshot";
 import type { NativeSnapshot } from "./lib/snapshot-types";
+import { datebookNative } from "./modules/datebook-native";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -234,6 +235,42 @@ export default function App() {
     webviewRef.current?.injectJavaScript(script);
   }, []);
 
+  const publishLiveStatus = useCallback(async () => {
+    const native = datebookNative();
+    if (!native) {
+      pushBridge("liveActivityStatus", {
+        success: false,
+        code: "unsupported",
+        message: "The Datebook native module is unavailable.",
+        supported: false,
+        activeCount: 0,
+      });
+      return;
+    }
+    try {
+      pushBridge("liveActivityStatus", await native.getLiveActivityStatus());
+    } catch (error) {
+      console.error("Could not read Live Activity status", error);
+      pushBridge("liveActivityStatus", {
+        success: false,
+        code: "unknownError",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }, [pushBridge]);
+
+  // Adopt and reconcile an ActivityKit activity that survived a relaunch.
+  // Passing null asks native code to use the last App Group snapshot.
+  useEffect(() => {
+    if (!lockReady || locked || !appIsActive) return;
+    const native = datebookNative();
+    if (!native) return;
+    void native
+      .reconcileLiveActivities(null)
+      .then(() => publishLiveStatus())
+      .catch((error) => console.error("Could not reconcile stored Live Activity", error));
+  }, [appIsActive, lockReady, locked, publishLiveStatus]);
+
   useEffect(() => {
     if (!lockReady || locked) return;
     void consumeInbox(pushBridge).then((url) => {
@@ -290,7 +327,60 @@ export default function App() {
       if (message.type === "nativeSnapshot" && message.payload) {
         const snapshot = message.payload as unknown as NativeSnapshot;
         setFocusRunning(Boolean(snapshot.liveFocus?.running));
-        void applySnapshot(snapshot);
+        void applySnapshot(snapshot)
+          .then(() => publishLiveStatus())
+          .catch((error) => {
+            console.error("Could not apply Datebook native snapshot", error);
+            pushBridge("liveActivityStatus", {
+              success: false,
+              code: "unknownError",
+              message: error instanceof Error ? error.message : String(error),
+            });
+          });
+        return;
+      }
+
+      if (message.type === "getLiveActivityStatus") {
+        void publishLiveStatus();
+        return;
+      }
+
+      if (message.type === "startTestLiveActivity") {
+        const native = datebookNative();
+        if (!native) return;
+        void native
+          .startTestLiveActivity()
+          .then(() => publishLiveStatus())
+          .catch((error) => {
+            console.error("Could not start test Live Activity", error);
+            pushBridge("liveActivityStatus", {
+              success: false,
+              code: "unknownError",
+              message: error instanceof Error ? error.message : String(error),
+            });
+          });
+        return;
+      }
+
+      if (message.type === "stopAllLiveActivities") {
+        const native = datebookNative();
+        if (!native) return;
+        void native
+          .stopAllLiveActivities()
+          .then(() => publishLiveStatus())
+          .catch((error) => {
+            console.error("Could not stop Live Activity", error);
+            pushBridge("liveActivityStatus", {
+              success: false,
+              code: "unknownError",
+              message: error instanceof Error ? error.message : String(error),
+            });
+          });
+        return;
+      }
+
+      if (message.type === "openNativeSettings") {
+        void Linking.openSettings().catch((error) => console.error("Could not open iOS Settings", error));
         return;
       }
 
@@ -344,7 +434,7 @@ export default function App() {
         });
       }
     },
-    [pushBridge]
+    [publishLiveStatus, pushBridge]
   );
 
   const runOAuthInSystemBrowser = useCallback(async (authUrl: string) => {
