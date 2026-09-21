@@ -21,19 +21,11 @@ import UIKit
 /// passes taps through to the WebView underneath instead of blocking them.
 public class DatebookTabBarView: ExpoView, UITabBarControllerDelegate {
   let onSelect = EventDispatcher()
-  /// Fires the tab bar's real, currently-rendered height whenever it
-  /// changes, so the separate "+" button (a plain UIButton, which does
-  /// stretch to whatever frame it's given) can be sized to actually match
-  /// this control instead of guessing at a shared constant — the
-  /// UITabBarController composes this bar's height itself, so it isn't
-  /// something React decides the way it does for a bare view.
-  let onMeasuredHeight = EventDispatcher()
 
   private let tabBarController = UITabBarController()
   private var isProgrammaticSelection = false
   private var currentSelectedIndex = 0
   private var didAttemptContainment = false
-  private var lastReportedHeight: CGFloat = -1
 
   public required init(appContext: AppContext? = nil) {
     super.init(appContext: appContext)
@@ -81,14 +73,6 @@ public class DatebookTabBarView: ExpoView, UITabBarControllerDelegate {
     let barFrame = tabBarController.tabBar.frame.insetBy(dx: -8, dy: -8)
     guard barFrame.contains(point) else { return nil }
     return super.hitTest(point, with: event)
-  }
-
-  public override func layoutSubviews() {
-    super.layoutSubviews()
-    let height = tabBarController.tabBar.frame.height
-    guard height > 0, abs(height - lastReportedHeight) > 0.5 else { return }
-    lastReportedHeight = height
-    onMeasuredHeight(["height": height])
   }
 
   func setItems(_ items: [[String: String]]) {
