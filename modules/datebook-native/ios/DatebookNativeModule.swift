@@ -2,46 +2,44 @@ import AppIntents
 import CoreSpotlight
 import ExpoModulesCore
 import Foundation
-import ObjectiveC.runtime
 import WidgetKit
 
 let appGroupId = "group.com.sarveshjagtap.datebook"
 let snapshotKey = "datebook.snapshot"
 let inboxKey = "datebook.inbox"
-let liveRequestNotification = Notification.Name("DatebookLiveActivity.Request")
 
 func appGroupDefaults() -> UserDefaults {
   UserDefaults(suiteName: appGroupId) ?? .standard
 }
 
-private func callLiveBridge(operation: String, snapshot: String? = nil) async -> [String: Any] {
-  guard let bridge = NSClassFromString("DatebookLiveBridge") else {
+private func callLiveManager(operation: String, snapshot: String? = nil) async -> [String: Any] {
+  guard #available(iOS 16.2, *) else {
     return [
       "success": false,
-      "code": "unknownError",
-      "message": "The app-target Live Activity bridge is missing.",
+      "code": "unsupported",
+      "message": "Live Activities require iOS 16.2 or later.",
+      "supported": false,
+      "activeCount": 0,
       "operation": operation,
     ]
   }
-  let installSelector = NSSelectorFromString("install")
-  guard let method = class_getClassMethod(bridge, installSelector) else {
+
+  switch operation {
+  case "status":
+    return await DatebookLiveManager.shared.status()
+  case "testStart":
+    return await DatebookLiveManager.shared.startTest()
+  case "stopAll":
+    return await DatebookLiveManager.shared.stopAll()
+  case "reconcile":
+    return await DatebookLiveManager.shared.reconcile(snapshot)
+  default:
     return [
       "success": false,
       "code": "unknownError",
-      "message": "The app-target Live Activity bridge cannot be initialized.",
+      "message": "Unknown Live Activity operation.",
       "operation": operation,
     ]
-  }
-  typealias InstallFunction = @convention(c) (AnyClass, Selector) -> Void
-  let install = unsafeBitCast(method_getImplementation(method), to: InstallFunction.self)
-  install(bridge, installSelector)
-  return await withCheckedContinuation { continuation in
-    let completion: ([String: Any]) -> Void = { result in
-      continuation.resume(returning: result)
-    }
-    var userInfo: [String: Any] = ["operation": operation, "completion": completion]
-    if let snapshot { userInfo["snapshot"] = snapshot }
-    NotificationCenter.default.post(name: liveRequestNotification, object: nil, userInfo: userInfo)
   }
 }
 
@@ -74,23 +72,23 @@ public class DatebookNativeModule: Module {
     }
 
     AsyncFunction("getLiveActivityStatus") { () async -> [String: Any] in
-      await callLiveBridge(operation: "status")
+      await callLiveManager(operation: "status")
     }
 
     AsyncFunction("startTestLiveActivity") { () async -> [String: Any] in
-      await callLiveBridge(operation: "testStart")
+      await callLiveManager(operation: "testStart")
     }
 
     AsyncFunction("stopAllLiveActivities") { () async -> [String: Any] in
-      await callLiveBridge(operation: "stopAll")
+      await callLiveManager(operation: "stopAll")
     }
 
     AsyncFunction("reconcileLiveActivities") { (snapshot: String?) async -> [String: Any] in
-      await callLiveBridge(operation: "reconcile", snapshot: snapshot)
+      await callLiveManager(operation: "reconcile", snapshot: snapshot)
     }
 
     AsyncFunction("updateLive") { (snapshot: String) async -> [String: Any] in
-      await callLiveBridge(operation: "reconcile", snapshot: snapshot)
+      await callLiveManager(operation: "reconcile", snapshot: snapshot)
     }
 
     AsyncFunction("startLive") { (kind: String, id: String, title: String, subtitle: String, start: Double, end: Double, color: String, running: Bool) async -> [String: Any] in
@@ -118,7 +116,7 @@ public class DatebookNativeModule: Module {
         guard let json = String(data: data, encoding: .utf8) else {
           return ["success": false, "code": "unknownError", "message": "Could not encode legacy Live Activity state."]
         }
-        return await callLiveBridge(operation: "reconcile", snapshot: json)
+        return await callLiveManager(operation: "reconcile", snapshot: json)
       } catch {
         return [
           "success": false,
@@ -131,7 +129,7 @@ public class DatebookNativeModule: Module {
 
     // Kept as a structured compatibility endpoint for older web deployments.
     AsyncFunction("endLive") { (_: String) async -> [String: Any] in
-      await callLiveBridge(operation: "stopAll")
+      await callLiveManager(operation: "stopAll")
     }
 
     Function("readInbox") { () -> String? in

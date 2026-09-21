@@ -105,13 +105,12 @@ private struct DatebookLiveOperationResult: Codable {
   }
 }
 
-private let datebookLiveRequestNotification = Notification.Name("DatebookLiveActivity.Request")
 private let datebookLiveAppGroup = "group.com.sarveshjagtap.datebook"
 private let datebookLiveSnapshotKey = "datebook.liveActivity.snapshot"
 private let datebookLiveLastResultKey = "datebook.liveActivity.lastResult"
 
 @available(iOS 16.2, *)
-private actor DatebookLiveManager {
+actor DatebookLiveManager {
   static let shared = DatebookLiveManager()
   private let logger = Logger(subsystem: "com.sarveshjagtap.datebook", category: "LiveActivity")
 
@@ -465,48 +464,5 @@ private actor DatebookLiveManager {
       if let operation = last.operation { result["operation"] = operation }
     }
     return result
-  }
-}
-
-/// The Expo module and this app-target source communicate in-process through a
-/// private notification. This keeps the ActivityKit schema in one shared file
-/// while the Expo module remains a CocoaPods module with no duplicate type.
-@objc(DatebookLiveBridge)
-final class DatebookLiveBridge: NSObject {
-  private static var token: NSObjectProtocol?
-
-  @objc static func install() {
-    guard token == nil else { return }
-    token = NotificationCenter.default.addObserver(
-      forName: datebookLiveRequestNotification,
-      object: nil,
-      queue: nil
-    ) { note in
-      guard let operation = note.userInfo?["operation"] as? String,
-            let completion = note.userInfo?["completion"] as? ([String: Any]) -> Void else { return }
-      let snapshot = note.userInfo?["snapshot"] as? String
-      Task {
-        let result: [String: Any]
-        if #available(iOS 16.2, *) {
-          switch operation {
-          case "status": result = await DatebookLiveManager.shared.status()
-          case "testStart": result = await DatebookLiveManager.shared.startTest()
-          case "stopAll": result = await DatebookLiveManager.shared.stopAll()
-          case "reconcile": result = await DatebookLiveManager.shared.reconcile(snapshot)
-          default:
-            result = ["success": false, "code": "unknownError", "message": "Unknown Live Activity operation."]
-          }
-        } else {
-          result = [
-            "success": false,
-            "code": "unsupported",
-            "message": "Live Activities require iOS 16.2 or later.",
-            "supported": false,
-            "activeCount": 0,
-          ]
-        }
-        completion(result)
-      }
-    }
   }
 }
