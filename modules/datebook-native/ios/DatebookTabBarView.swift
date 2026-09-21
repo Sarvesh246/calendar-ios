@@ -1,102 +1,137 @@
 import ExpoModulesCore
 import UIKit
 
-/// A single, plain `UITabBar` — no outer `UIVisualEffectView`/`UIGlassEffect`
-/// wrapper. An earlier version added one purely to grow the tray's visible
-/// height, but it produced a second, wrongly-shaped glass shape behind the
-/// real bar on a physical device, and that persisted even after clipping
-/// the wrapper's bounds — confirmed by the same artifact appearing around
-/// the separate "+" button too, which that wrapper never touched. Rather
-/// than keep adjusting properties on a component confirmed to be the
-/// problem, it's removed outright: with exactly one glass-backed view in
-/// this hierarchy, a second visible glass shape isn't possible by
-/// construction. The known tradeoff is that `tabBar`'s own background
-/// material renders at its native, content-hugging height rather than
-/// whatever taller frame this view is laid out at — a separate, already
-/// surfaced limitation, not something this file is trying to solve again.
-public class DatebookTabBarView: ExpoView, UITabBarDelegate {
+/// Embeds a real `UITabBarController` rather than a bare `UITabBar`. Four
+/// separate techniques against a bare, unmanaged `UITabBar` (forcing its
+/// frame via constraints, an intrinsic-size override, bigger icon/label
+/// content, and a wrapping second glass view) each either failed to grow
+/// its own rendered background or introduced illegal glass-in-glass
+/// nesting artifacts. Apple's own apps (e.g. News) ship exactly this
+/// floating-tray-plus-separate-button layout with a taller, better-
+/// proportioned bar than any of those attempts reproduced — real evidence
+/// that treatment is tied to `UITabBarController`'s own composition of its
+/// bar, not something a standalone `UITabBar` can be coaxed into.
+///
+/// The controller's "content" is never actually shown — each tab holds an
+/// empty, transparent view controller, since the WebView (driven by React)
+/// remains the real content and routing source of truth. This view is
+/// deliberately taller than the visible dock so the controller has the
+/// room its own layout expects above the bar; `hitTest` restricts real
+/// touch handling to the bar's own frame so that extra transparent space
+/// passes taps through to the WebView underneath instead of blocking them.
+public class DatebookTabBarView: ExpoView, UITabBarControllerDelegate {
   let onSelect = EventDispatcher()
 
-  private let tabBar = UITabBar()
+  private let tabBarController = UITabBarController()
   private var isProgrammaticSelection = false
   private var currentSelectedIndex = 0
+  private var didAttemptContainment = false
 
   public required init(appContext: AppContext? = nil) {
     super.init(appContext: appContext)
 
-    tabBar.delegate = self
-    tabBar.translatesAutoresizingMaskIntoConstraints = false
-    // Let the system material show real content behind it — never force the
-    // bar opaque, and never clip the pressed selection bubble as it lifts
-    // outside the bar's resting bounds.
-    tabBar.isTranslucent = true
-    tabBar.clipsToBounds = false
     clipsToBounds = false
-    addSubview(tabBar)
+    tabBarController.delegate = self
+    tabBarController.view.backgroundColor = .clear
+    tabBarController.tabBar.clipsToBounds = false
+    tabBarController.view.translatesAutoresizingMaskIntoConstraints = false
+    addSubview(tabBarController.view)
 
     NSLayoutConstraint.activate([
-      tabBar.leadingAnchor.constraint(equalTo: leadingAnchor),
-      tabBar.trailingAnchor.constraint(equalTo: trailingAnchor),
-      tabBar.topAnchor.constraint(equalTo: topAnchor),
-      tabBar.bottomAnchor.constraint(equalTo: bottomAnchor),
+      tabBarController.view.leadingAnchor.constraint(equalTo: leadingAnchor),
+      tabBarController.view.trailingAnchor.constraint(equalTo: trailingAnchor),
+      tabBarController.view.topAnchor.constraint(equalTo: topAnchor),
+      tabBarController.view.bottomAnchor.constraint(equalTo: bottomAnchor),
     ])
   }
 
+  public override func didMoveToWindow() {
+    super.didMoveToWindow()
+    // Proper view-controller containment (best effort): walk the responder
+    // chain for the nearest real UIViewController hosting this native view
+    // so `tabBarController` gets correct lifecycle/appearance callbacks and
+    // safe-area propagation, rather than just floating its `.view` as a
+    // plain subview. Only needs to happen once, and only once this view is
+    // actually installed in a window.
+    guard window != nil, !didAttemptContainment, tabBarController.parent == nil else { return }
+    didAttemptContainment = true
+    var responder: UIResponder? = self
+    while let current = responder {
+      if let hostVC = current as? UIViewController {
+        hostVC.addChild(tabBarController)
+        tabBarController.didMove(toParent: hostVC)
+        return
+      }
+      responder = current.next
+    }
+  }
+
+  // Only the tab bar's own frame (plus a small touch-slop margin) is
+  // interactive; the rest of this taller view passes touches through to
+  // whatever's beneath it (the WebView).
+  public override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+    let barFrame = tabBarController.tabBar.frame.insetBy(dx: -8, dy: -8)
+    guard barFrame.contains(point) else { return nil }
+    return super.hitTest(point, with: event)
+  }
+
   func setItems(_ items: [[String: String]]) {
-    tabBar.items = items.enumerated().map { index, item in
+    let controllers: [UIViewController] = items.enumerated().map { index, item in
+      let vc = UIViewController()
+      vc.view.backgroundColor = .clear
       let tabItem = UITabBarItem(
         title: item["label"],
         image: UIImage(systemName: item["symbol"] ?? "circle"),
         tag: index
       )
       tabItem.accessibilityIdentifier = item["url"]
-      return tabItem
+      vc.tabBarItem = tabItem
+      return vc
     }
-    applySelection(currentSelectedIndex, animated: false)
+    tabBarController.viewControllers = controllers
+    applySelection(currentSelectedIndex)
   }
 
   func setSelectedIndex(_ index: Int) {
     currentSelectedIndex = index
-    applySelection(index, animated: true)
+    applySelection(index)
   }
 
-  private func applySelection(_ index: Int, animated: Bool) {
-    guard let items = tabBar.items, index >= 0, index < items.count else {
-      // A route with no matching tab (Settings/Schedule) — leave the tray
-      // without a system selection rather than forcing a wrong tab lit.
-      isProgrammaticSelection = true
-      tabBar.selectedItem = nil
-      isProgrammaticSelection = false
+  private func applySelection(_ index: Int) {
+    guard let controllers = tabBarController.viewControllers, index >= 0, index < controllers.count else {
+      // A route with no matching tab (Settings/Schedule) — a
+      // UITabBarController has no "no selection" state the way a bare
+      // UITabBar's `selectedItem = nil` does, so the last real tab just
+      // stays lit rather than forcing an invalid index.
       return
     }
     isProgrammaticSelection = true
-    tabBar.selectedItem = items[index]
+    tabBarController.selectedIndex = index
     isProgrammaticSelection = false
   }
 
   func setTint(_ hex: String?) {
-    tabBar.tintColor = UIColor(datebookHex: hex) ?? .systemBlue
+    tabBarController.tabBar.tintColor = UIColor(datebookHex: hex) ?? .systemBlue
   }
 
   func setUnselectedTint(_ hex: String?) {
-    tabBar.unselectedItemTintColor = UIColor(datebookHex: hex) ?? .secondaryLabel
+    tabBarController.tabBar.unselectedItemTintColor = UIColor(datebookHex: hex) ?? .secondaryLabel
   }
 
   func setDisabled(_ disabled: Bool) {
-    tabBar.isUserInteractionEnabled = !disabled
+    tabBarController.tabBar.isUserInteractionEnabled = !disabled
     // Dim, don't fake a different material, while chrome is suppressed
     // (a sheet/drawer/focus overlay is up).
-    tabBar.alpha = disabled ? 0.4 : 1
+    tabBarController.tabBar.alpha = disabled ? 0.4 : 1
   }
 
   /// Datebook's own resolved in-app theme, not the phone's Dark Mode
-  /// setting — a `UITabBar` otherwise inherits `userInterfaceStyle` from the
+  /// setting — this view otherwise inherits `userInterfaceStyle` from the
   /// window, which tracks the device, not the app's selected appearance.
-  /// Overriding it here (rather than window-wide) scopes the effect to this
-  /// control and its Liquid Glass material/dynamic colors (`.secondaryLabel`
-  /// for unselected items, the glass tint) without touching any other native
-  /// chrome or system UI. Re-applying this never resets `selectedItem` or
-  /// recreates the bar.
+  /// Applied on `self` so it cascades to the tab bar's Liquid Glass
+  /// material and dynamic colors (`.secondaryLabel` for unselected items)
+  /// without touching any other native chrome or system UI. Re-applying
+  /// this never resets `selectedIndex` or recreates the controller.
   func setInterfaceStyle(_ style: String?) {
     switch style {
     case "light":
@@ -108,17 +143,18 @@ public class DatebookTabBarView: ExpoView, UITabBarDelegate {
     }
   }
 
-  // MARK: UITabBarDelegate
+  // MARK: UITabBarControllerDelegate
 
-  public func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
-    // `selectedItem =` (used by setSelectedIndex, driven by React's route
-    // sync) does not itself invoke this delegate method on iOS — only a real
-    // user tap/drag-release does. This guard is a second line of defense in
+  public func tabBarController(_ tabBarController: UITabBarController, didSelect viewController: UIViewController) {
+    // Programmatic selection (`applySelection`, driven by React's route
+    // sync) does not invoke this delegate method — only a real user
+    // tap/drag-release does. This guard is a second line of defense in
     // case that ever changes, so a programmatic sync can never round-trip
     // into a second navigate intent.
     guard !isProgrammaticSelection else { return }
-    currentSelectedIndex = item.tag
-    onSelect(["index": item.tag])
+    guard let index = tabBarController.viewControllers?.firstIndex(of: viewController) else { return }
+    currentSelectedIndex = index
+    onSelect(["index": index])
   }
 }
 
