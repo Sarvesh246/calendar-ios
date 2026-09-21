@@ -41,10 +41,6 @@ export type DatebookTabBarProps = ViewProps & {
   disabled?: boolean;
   interfaceStyle?: DatebookInterfaceStyle;
   onSelect?: (event: { nativeEvent: { index: number } }) => void;
-  /** The tab bar's real, currently-rendered height (a UITabBarController
-   *  composes this itself — it isn't something the `style` height alone
-   *  determines), fired whenever it changes. */
-  onMeasuredHeight?: (event: { nativeEvent: { height: number } }) => void;
 };
 
 export type DatebookGlassButtonProps = ViewProps & {
