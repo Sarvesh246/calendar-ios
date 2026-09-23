@@ -96,6 +96,13 @@ export default function App() {
   const webviewRef = useRef<WebView>(null);
   const [uri, setUri] = useState(APP_ORIGIN);
   const canGoBack = useRef(false);
+  // iOS can kill the WebView's content process while the app is backgrounded,
+  // leaving the black container behind. `lastUrl` lets us rebuild the view on
+  // the page the user was on; `webviewKey` remounts it.
+  const lastUrl = useRef(APP_ORIGIN);
+  const [webviewKey, setWebviewKey] = useState(0);
+  const loadFailed = useRef(false);
+  const pingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [chrome, setChrome] = useState<NativeChromeState>(DEFAULT_NATIVE_CHROME);
   const [focusRunning, setFocusRunning] = useState(false);
   const pendingNavigation = useRef<{ url: string; startedAt: number } | null>(null);
@@ -195,6 +202,36 @@ export default function App() {
     return () => sub.remove();
   }, []);
 
+  const recoverWebView = useCallback(() => {
+    if (pingTimer.current) clearTimeout(pingTimer.current);
+    pingTimer.current = null;
+    loadFailed.current = false;
+    setUri(lastUrl.current);
+    setWebviewKey((key) => key + 1);
+  }, []);
+
+  // Coming back to the app: ask the page to answer a ping. A live page replies
+  // at once; a dead or blank one never does, so we rebuild it rather than leave
+  // a black screen. A page that failed to load (offline launch) retries here too.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (next) => {
+      if (next !== "active") return;
+      if (loadFailed.current) {
+        recoverWebView();
+        return;
+      }
+      if (pingTimer.current) clearTimeout(pingTimer.current);
+      pingTimer.current = setTimeout(recoverWebView, 2500);
+      webviewRef.current?.injectJavaScript(
+        "window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({type:'ping'})); true;"
+      );
+    });
+    return () => {
+      sub.remove();
+      if (pingTimer.current) clearTimeout(pingTimer.current);
+    };
+  }, [recoverWebView]);
+
   // Home Screen Quick Actions — static entries, resolved on cold launch
   // (QuickActions.initial) and while the app is already running (addListener).
   useEffect(() => {
@@ -285,6 +322,12 @@ export default function App() {
       try {
         message = JSON.parse(event.nativeEvent.data);
       } catch {
+        return;
+      }
+
+      if (message.type === "ping") {
+        if (pingTimer.current) clearTimeout(pingTimer.current);
+        pingTimer.current = null;
         return;
       }
 
@@ -483,6 +526,7 @@ export default function App() {
 
   const onNavigationStateChange = useCallback((navState: WebViewNavigation) => {
     canGoBack.current = navState.canGoBack;
+    if (navState.url.startsWith(APP_ORIGIN)) lastUrl.current = navState.url;
   }, []);
 
   if (Platform.OS === "android") {
@@ -522,8 +566,19 @@ export default function App() {
       <View style={styles.container}>
         <StatusBar style={chrome.appearance === "light" ? "dark" : "light"} />
         <WebView
+          key={webviewKey}
           ref={webviewRef}
           source={{ uri }}
+          onContentProcessDidTerminate={recoverWebView}
+          onLoadStart={() => {
+            loadFailed.current = false;
+          }}
+          onError={() => {
+            loadFailed.current = true;
+          }}
+          onHttpError={(event) => {
+            if (event.nativeEvent.statusCode >= 500) loadFailed.current = true;
+          }}
           style={styles.webview}
           onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
           onNavigationStateChange={onNavigationStateChange}
