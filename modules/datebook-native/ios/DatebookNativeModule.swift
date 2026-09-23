@@ -183,5 +183,18 @@ public class DatebookNativeModule: Module {
       }
       Events("onPress")
     }
+
+    View(DatebookModelPickerView.self) {
+      Prop("options") { (view: DatebookModelPickerView, options: [[String: String]]) in
+        view.setOptions(options)
+      }
+      Prop("selectedId") { (view: DatebookModelPickerView, selectedId: String?) in
+        view.setSelectedId(selectedId)
+      }
+      Prop("interfaceStyle") { (view: DatebookModelPickerView, style: String?) in
+        view.setInterfaceStyle(style)
+      }
+      Events("onSelect")
+    }
   }
 }

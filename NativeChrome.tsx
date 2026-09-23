@@ -1,6 +1,6 @@
 import { GlassView, isGlassEffectAPIAvailable } from "expo-glass-effect";
 import { SymbolView, type SFSymbol } from "expo-symbols";
-import { requireDatebookGlassButtonView, requireDatebookTabBarView } from "./modules/datebook-native";
+import { requireDatebookGlassButtonView, requireDatebookModelPickerView, requireDatebookTabBarView } from "./modules/datebook-native";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AccessibilityInfo,
@@ -11,6 +11,7 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
   type ViewStyle,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -21,12 +22,16 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 // per-render.
 const DatebookNativeTabBar = requireDatebookTabBarView();
 const DatebookNativeGlassButton = requireDatebookGlassButtonView();
+const DatebookNativeModelPicker = requireDatebookModelPickerView();
 
 export type NativeChromeState = {
   ready: boolean;
   pathname: string;
   focusMode: boolean;
   obscured: boolean;
+  assistantOpen: boolean;
+  assistantModels: { id: string; label: string }[];
+  assistantModelId: string;
   inRoom: boolean;
   filtersActive: boolean;
   appearance: "light" | "dark";
@@ -45,6 +50,9 @@ export const DEFAULT_NATIVE_CHROME: NativeChromeState = {
   pathname: "/today",
   focusMode: false,
   obscured: false,
+  assistantOpen: false,
+  assistantModels: [],
+  assistantModelId: "auto",
   inRoom: false,
   filtersActive: false,
   appearance: "dark",
@@ -61,6 +69,7 @@ export const DEFAULT_NATIVE_CHROME: NativeChromeState = {
 type ChromeAction =
   | { type: "navigate"; url: string }
   | { type: "compose" }
+  | { type: "selectAssistantModel"; modelId: string }
   | { type: "ask" | "search" | "filters" | "exitFocus" | "pauseFocus" | "resumeFocus" | "endFocus" };
 
 type Props = {
@@ -316,9 +325,11 @@ function TabItem({
 
 export function NativeChrome({ state, focusRunning, onAction }: Props) {
   const insets = useSafeAreaInsets();
+  const window = useWindowDimensions();
   const [reduceTransparency, setReduceTransparency] = useState(false);
   const [reduceMotion, setReduceMotion] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const askReveal = useRef(new Animated.Value(state.inRoom ? 0 : 1)).current;
 
   // -1 means the current route has no matching tab (Settings/Schedule):
@@ -337,8 +348,14 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
   }, []);
 
   useEffect(() => {
-    const show = Keyboard.addListener("keyboardWillShow", () => setKeyboardVisible(true));
-    const hide = Keyboard.addListener("keyboardWillHide", () => setKeyboardVisible(false));
+    const show = Keyboard.addListener("keyboardWillShow", (event) => {
+      setKeyboardVisible(true);
+      setKeyboardHeight(event.endCoordinates.height);
+    });
+    const hide = Keyboard.addListener("keyboardWillHide", () => {
+      setKeyboardVisible(false);
+      setKeyboardHeight(0);
+    });
     return () => {
       show.remove();
       hide.remove();
@@ -372,7 +389,26 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
     if (state.pathname !== tab.url) onAction({ type: "navigate", url: tab.url });
   }, [onAction, state.pathname]);
 
-  if (!state.ready || state.obscured) return null;
+  if (!state.ready) return null;
+
+  if (state.assistantOpen && DatebookNativeModelPicker) {
+    const visibleHeight = window.height - keyboardHeight;
+    const panelHeight = Math.min(visibleHeight * 0.7, 560, visibleHeight - insets.top - 20);
+    const panelBottom = Math.max(14, insets.bottom + 10) + keyboardHeight;
+    return (
+      <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+        <DatebookNativeModelPicker
+          style={[styles.modelPicker, { top: window.height - panelBottom - panelHeight + 9 }]}
+          options={state.assistantModels}
+          selectedId={state.assistantModelId || "auto"}
+          interfaceStyle={state.appearance}
+          onSelect={(event) => onAction({ type: "selectAssistantModel", modelId: event.nativeEvent.id })}
+        />
+      </View>
+    );
+  }
+
+  if (state.obscured) return null;
 
   if (state.focusMode) {
     return (
@@ -502,6 +538,14 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
 }
 
 const styles = StyleSheet.create({
+  modelPicker: {
+    position: "absolute",
+    alignSelf: "center",
+    width: 158,
+    height: 38,
+    zIndex: 60,
+    elevation: 60,
+  },
   fallbackSurface: {
     borderWidth: StyleSheet.hairlineWidth,
     shadowColor: "#000",

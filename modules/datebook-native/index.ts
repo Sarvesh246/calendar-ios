@@ -102,6 +102,13 @@ export type DatebookGlassButtonProps = ViewProps & {
   onPress?: (event: { nativeEvent: Record<string, never> }) => void;
 };
 
+export type DatebookModelPickerProps = ViewProps & {
+  options: { id: string; label: string }[];
+  selectedId: string;
+  interfaceStyle?: DatebookInterfaceStyle;
+  onSelect?: (event: { nativeEvent: { id: string } }) => void;
+};
+
 /** Real `UITabBar`-backed three-item tray. Falls back to `null` off-iOS. */
 export function requireDatebookTabBarView() {
   try {
@@ -115,6 +122,15 @@ export function requireDatebookTabBarView() {
 export function requireDatebookGlassButtonView() {
   try {
     return requireNativeViewManager<DatebookGlassButtonProps>("DatebookNative", "DatebookGlassButtonView");
+  } catch {
+    return null;
+  }
+}
+
+/** UIKit UIMenu model selector with real iOS 26 glass. */
+export function requireDatebookModelPickerView() {
+  try {
+    return requireNativeViewManager<DatebookModelPickerProps>("DatebookNative", "DatebookModelPickerView");
   } catch {
     return null;
   }
