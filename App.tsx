@@ -535,7 +535,7 @@ export default function App() {
           contentInsetAdjustmentBehavior="never"
           applicationNameForUserAgent={USER_AGENT_MARKER}
           injectedJavaScriptBeforeContentLoaded={
-            "document.documentElement.classList.add('native-ios'); true;"
+            "document.documentElement.classList.add('native-ios', 'native-model-picker'); true;"
           }
           // Datebook is local-first (Zustand + localStorage); this keeps that
           // storage in the app's own container across launches and resigns.
