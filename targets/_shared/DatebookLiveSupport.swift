@@ -109,6 +109,37 @@ private let datebookLiveAppGroup = "group.com.sarveshjagtap.datebook"
 private let datebookLiveSnapshotKey = "datebook.liveActivity.snapshot"
 private let datebookLiveLastResultKey = "datebook.liveActivity.lastResult"
 
+/// What a signer actually embedded, read from `embedded.mobileprovision`.
+/// The file is a CMS blob wrapping an XML plist, so the plist is cut out by
+/// its markers. This is what tells a free-account re-sign that dropped the App
+/// Group apart from a healthy one, which `extensionPresent` cannot.
+private func provisioningSummary(for bundleURL: URL) -> [String: Any] {
+  let profileURL = bundleURL.appendingPathComponent("embedded.mobileprovision")
+  guard let data = try? Data(contentsOf: profileURL) else {
+    return ["profile": "missing"]
+  }
+  guard
+    let text = String(data: data, encoding: .isoLatin1),
+    let start = text.range(of: "<?xml"),
+    let end = text.range(of: "</plist>"),
+    let xml = String(text[start.lowerBound..<end.upperBound]).data(using: .isoLatin1),
+    let plist = try? PropertyListSerialization.propertyList(from: xml, options: [], format: nil) as? [String: Any]
+  else {
+    return ["profile": "unreadable"]
+  }
+  let entitlements = plist["Entitlements"] as? [String: Any] ?? [:]
+  var summary: [String: Any] = [
+    "profile": "present",
+    "applicationIdentifier": entitlements["application-identifier"] as? String ?? "none",
+    "appGroups": entitlements["com.apple.security.application-groups"] as? [String] ?? [],
+    "teamIdentifier": (plist["TeamIdentifier"] as? [String])?.first ?? "none",
+  ]
+  if let expiry = plist["ExpirationDate"] as? Date {
+    summary["expires"] = ISO8601DateFormatter().string(from: expiry)
+  }
+  return summary
+}
+
 @available(iOS 16.2, *)
 actor DatebookLiveManager {
   static let shared = DatebookLiveManager()
@@ -442,6 +473,17 @@ actor DatebookLiveManager {
       "scheduleEligible": storedSnapshot?.eligible ?? false,
       "eligibilityReason": storedSnapshot?.eligibilityReason ?? "Waiting for the first schedule snapshot.",
     ]
+    result["appGroupContainerAvailable"] =
+      FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: datebookLiveAppGroup) != nil
+    var signing: [String: Any] = ["app": provisioningSummary(for: Bundle.main.bundleURL)]
+    if let plugIns = Bundle.main.builtInPlugInsURL {
+      let appex = plugIns.appendingPathComponent("DatebookWidgets.appex", isDirectory: true)
+      var widget = provisioningSummary(for: appex)
+      widget["bundleIdentifier"] = Bundle(url: appex)?.bundleIdentifier ?? "unknown"
+      signing["widgetExtension"] = widget
+    }
+    signing["appBundleIdentifier"] = Bundle.main.bundleIdentifier ?? "unknown"
+    result["signing"] = signing
     if let first = activities.first {
       result["activityId"] = first.id
       result["activityState"] = stateName(first.activityState)
