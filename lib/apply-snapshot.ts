@@ -46,7 +46,15 @@ export async function applySnapshot(snapshot: NativeSnapshot): Promise<LiveActiv
   await Notifications.setBadgeCountAsync(Math.max(0, snapshot.badge ?? 0));
   await scheduleReminders(snapshot);
   const liveResult = await syncLive(snapshot);
-  if (snapshot.appleCalendarSync) await upsertCalendar(snapshot);
+  // Apple Calendar mirroring is optional; a failure there must not surface as
+  // the Live Activity status or stop background registration.
+  if (snapshot.appleCalendarSync) {
+    try {
+      await upsertCalendar(snapshot);
+    } catch (error) {
+      console.warn("[Datebook] Apple Calendar sync failed", error);
+    }
+  }
   await registerBackground();
   return liveResult;
 }
@@ -132,17 +140,16 @@ async function syncLive(snapshot: NativeSnapshot): Promise<LiveActivityOperation
 }
 
 async function upsertCalendar(snapshot: NativeSnapshot) {
-  const perm = await Calendar.requestCalendarPermissionsAsync();
+  const perm = await Calendar.requestCalendarPermissions();
   if (perm.status !== "granted") return;
-  const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
-  let cal = calendars.find((c) => c.title === CAL_NAME && c.allowsModifications);
-  let calendarId = cal?.id;
-  if (!cal) {
+  const calendars = await Calendar.getCalendars(Calendar.EntityTypes.EVENT);
+  let calendar = calendars.find((c) => c.title === CAL_NAME && c.allowsModifications);
+  if (!calendar) {
     const source =
       calendars.find((c) => c.source?.name === "Default")?.source ??
       calendars.find((c) => c.allowsModifications)?.source;
     if (!source) return;
-    calendarId = await Calendar.createCalendarAsync({
+    calendar = await Calendar.createCalendar({
       title: CAL_NAME,
       color: "#0A84FF",
       entityType: Calendar.EntityTypes.EVENT,
@@ -153,10 +160,9 @@ async function upsertCalendar(snapshot: NativeSnapshot) {
       accessLevel: Calendar.CalendarAccessLevel.OWNER,
     });
   }
-  if (!calendarId) return;
   const start = new Date(Date.now() - 24 * 60 * 60_000);
   const end = new Date(Date.now() + 14 * 24 * 60 * 60_000);
-  const existing = await Calendar.getEventsAsync([calendarId], start, end);
+  const existing = await calendar.listEvents(start, end);
   const byNote = new Map(existing.map((e) => [e.notes ?? "", e]));
   for (const ev of snapshot.calendarEvents ?? []) {
     const notes = ev.notes ?? `datebook:${ev.id}`;
@@ -168,10 +174,9 @@ async function upsertCalendar(snapshot: NativeSnapshot) {
       allDay: ev.allDay,
       location: ev.location,
       notes,
-      calendarId,
     };
-    if (found) await Calendar.updateEventAsync(found.id, details);
-    else await Calendar.createEventAsync(calendarId, details);
+    if (found) await found.update(details);
+    else await calendar.createEvent(details);
   }
 }
 
