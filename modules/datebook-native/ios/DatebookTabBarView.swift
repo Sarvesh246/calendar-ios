@@ -27,12 +27,6 @@ public class DatebookTabBarView: ExpoView, UITabBarControllerDelegate {
   private var currentSelectedIndex = 0
   private var didAttemptContainment = false
 
-  /// Liquid Glass over dark or busy content can read as almost clear. A thin
-  /// blur material sits under the bar's glass so it frosts what scrolls
-  /// beneath it. Raise `frostAlpha` for more frost, lower it for less.
-  private let frostView = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
-  private let frostAlpha: CGFloat = 0.92
-
   public required init(appContext: AppContext? = nil) {
     super.init(appContext: appContext)
 
@@ -40,10 +34,6 @@ public class DatebookTabBarView: ExpoView, UITabBarControllerDelegate {
     tabBarController.delegate = self
     tabBarController.view.backgroundColor = .clear
     tabBarController.tabBar.clipsToBounds = false
-    frostView.isUserInteractionEnabled = false
-    frostView.clipsToBounds = true
-    frostView.alpha = frostAlpha
-    tabBarController.tabBar.insertSubview(frostView, at: 0)
     tabBarController.view.translatesAutoresizingMaskIntoConstraints = false
     addSubview(tabBarController.view)
 
@@ -74,23 +64,6 @@ public class DatebookTabBarView: ExpoView, UITabBarControllerDelegate {
       }
       responder = current.next
     }
-  }
-
-  public override func layoutSubviews() {
-    super.layoutSubviews()
-    // Track the visible pill, not the safe-area padding below it, and keep it
-    // a capsule so the blur never pokes out past the glass edge.
-    let bar = tabBarController.tabBar
-    let bottomInset = bar.safeAreaInsets.bottom
-    let rect = CGRect(
-      x: 0,
-      y: 0,
-      width: bar.bounds.width,
-      height: max(0, bar.bounds.height - bottomInset)
-    )
-    frostView.frame = rect
-    frostView.layer.cornerRadius = min(rect.width, rect.height) / 2
-    if #available(iOS 13.0, *) { frostView.layer.cornerCurve = .continuous }
   }
 
   // Only the tab bar's own frame (plus a small touch-slop margin) is
