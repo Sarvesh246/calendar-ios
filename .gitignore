@@ -30,8 +30,9 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
-.env*.local
+# env files - real values never leave the machine
+.env*
+!.env.example
 
 # typescript
 *.tsbuildinfo
@@ -39,3 +40,13 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# loose notes and credential dumps at the repo root (never tracked)
+/*.txt
+
+# local tool state
+graphify-out/
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.claude/settings.local.json

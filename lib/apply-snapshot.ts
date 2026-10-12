@@ -3,7 +3,6 @@ import * as Calendar from "expo-calendar";
 import * as Location from "expo-location";
 import * as BackgroundFetch from "expo-background-fetch";
 import * as TaskManager from "expo-task-manager";
-import * as Linking from "expo-linking";
 import { datebookNative } from "../modules/datebook-native";
 import type { LiveActivityOperationResult } from "../modules/datebook-native";
 import type { NativeSnapshot } from "./snapshot-types";
@@ -24,8 +23,16 @@ export async function requestNativeNotifications(): Promise<boolean> {
   const { status } = await Notifications.requestPermissionsAsync();
   try {
     await Notifications.setNotificationCategoryAsync("DATEBOOK_REMINDER", [
-      { identifier: "COMPLETE", buttonTitle: "Complete", options: { isDestructive: false, opensAppToForeground: true } },
-      { identifier: "SNOOZE", buttonTitle: "Snooze 15 min", options: { opensAppToForeground: true } },
+      {
+        identifier: "COMPLETE",
+        buttonTitle: "Complete",
+        options: { isDestructive: false, opensAppToForeground: true },
+      },
+      {
+        identifier: "SNOOZE",
+        buttonTitle: "Snooze 15 min",
+        options: { opensAppToForeground: true },
+      },
     ]);
   } catch {
     /* already registered */
@@ -39,7 +46,9 @@ export function getLastLiveActivityResult() {
   return lastLiveActivityResult;
 }
 
-export async function applySnapshot(snapshot: NativeSnapshot): Promise<LiveActivityOperationResult | null> {
+export async function applySnapshot(
+  snapshot: NativeSnapshot,
+): Promise<LiveActivityOperationResult | null> {
   const native = datebookNative();
   await native?.writeSnapshot(JSON.stringify(snapshot));
   await native?.indexSpotlight(JSON.stringify(snapshot.spotlight ?? []));
@@ -201,13 +210,15 @@ export function notificationDeepLink(response: Notifications.NotificationRespons
   const itemId = typeof data?.itemId === "string" ? data.itemId : undefined;
   const action = response.actionIdentifier;
   if (!itemId) return null;
-  if (action === "COMPLETE") return `https://datebookcalendar.vercel.app/today?intent=complete&item=${itemId}`;
-  if (action === "SNOOZE") return `https://datebookcalendar.vercel.app/today?intent=snooze&item=${itemId}`;
+  if (action === "COMPLETE")
+    return `https://datebookcalendar.vercel.app/today?intent=complete&item=${itemId}`;
+  if (action === "SNOOZE")
+    return `https://datebookcalendar.vercel.app/today?intent=snooze&item=${itemId}`;
   return `https://datebookcalendar.vercel.app/today?intent=item&item=${itemId}`;
 }
 
 export async function consumeInbox(
-  pushBridge: (type: string, payload: unknown) => void
+  pushBridge: (type: string, payload: unknown) => void,
 ): Promise<string | null> {
   const native = datebookNative();
   const raw = native?.readInbox() ?? null;

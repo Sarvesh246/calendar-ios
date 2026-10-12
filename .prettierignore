@@ -1,0 +1,10 @@
+node_modules/
+dist/
+dist-live-activity/
+.expo/
+ios/
+android/
+graphify-out/
+package-lock.json
+AGENTS.md
+CLAUDE.md
