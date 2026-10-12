@@ -12,7 +12,7 @@ type Native = {
     start: number,
     end: number,
     color: string,
-    running: boolean
+    running: boolean,
   ): Promise<LiveActivityOperationResult>;
   endLive(kind: string): Promise<LiveActivityOperationResult>;
   updateLive(snapshot: string): Promise<LiveActivityOperationResult>;
@@ -121,7 +121,10 @@ export function requireDatebookTabBarView() {
 /** Real `UIButton.Configuration.glass()`-backed circular "+" control. */
 export function requireDatebookGlassButtonView() {
   try {
-    return requireNativeViewManager<DatebookGlassButtonProps>("DatebookNative", "DatebookGlassButtonView");
+    return requireNativeViewManager<DatebookGlassButtonProps>(
+      "DatebookNative",
+      "DatebookGlassButtonView",
+    );
   } catch {
     return null;
   }
@@ -130,7 +133,10 @@ export function requireDatebookGlassButtonView() {
 /** UIKit UIMenu model selector with real iOS 26 glass. */
 export function requireDatebookModelPickerView() {
   try {
-    return requireNativeViewManager<DatebookModelPickerProps>("DatebookNative", "DatebookModelPickerView");
+    return requireNativeViewManager<DatebookModelPickerProps>(
+      "DatebookNative",
+      "DatebookModelPickerView",
+    );
   } catch {
     return null;
   }

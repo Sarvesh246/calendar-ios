@@ -33,7 +33,10 @@ export function LockScreen({ authenticating, onUnlock }: Props) {
   useEffect(() => {
     void AccessibilityInfo.isReduceTransparencyEnabled().then(setReduceTransparency);
     void AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
-    const transparencySub = AccessibilityInfo.addEventListener("reduceTransparencyChanged", setReduceTransparency);
+    const transparencySub = AccessibilityInfo.addEventListener(
+      "reduceTransparencyChanged",
+      setReduceTransparency,
+    );
     const motionSub = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduceMotion);
     return () => {
       transparencySub.remove();
@@ -75,10 +78,7 @@ export function LockScreen({ authenticating, onUnlock }: Props) {
     return () => rise.stopAnimation();
   }, [rise]);
 
-  const markStyle = useMemo(
-    () => [{ transform: [{ translateY: rise }] }],
-    [rise]
-  );
+  const markStyle = useMemo(() => [{ transform: [{ translateY: rise }] }], [rise]);
   const nativeGlass = Platform.OS === "ios" && isGlassEffectAPIAvailable() && !reduceTransparency;
   const springUnlock = (toValue: number) => {
     if (reduceMotion) {
@@ -101,11 +101,19 @@ export function LockScreen({ authenticating, onUnlock }: Props) {
           <View pointerEvents="none" style={styles.bloom} />
           {nativeGlass ? (
             <GlassView colorScheme="dark" glassEffectStyle="clear" style={styles.plate}>
-              <Image source={require("./assets/icon.png")} style={styles.mark} accessibilityIgnoresInvertColors />
+              <Image
+                source={require("./assets/icon.png")}
+                style={styles.mark}
+                accessibilityIgnoresInvertColors
+              />
             </GlassView>
           ) : (
             <View style={styles.plate}>
-              <Image source={require("./assets/icon.png")} style={styles.mark} accessibilityIgnoresInvertColors />
+              <Image
+                source={require("./assets/icon.png")}
+                style={styles.mark}
+                accessibilityIgnoresInvertColors
+              />
             </View>
           )}
           <Text style={styles.wordmark}>Datebook</Text>
@@ -115,7 +123,13 @@ export function LockScreen({ authenticating, onUnlock }: Props) {
         <View style={styles.actions}>
           {nativeGlass ? (
             <Animated.View style={[styles.buttonFrame, { transform: [{ scale: unlockScale }] }]}>
-              <GlassView colorScheme="dark" glassEffectStyle="regular" isInteractive tintColor="#0878d9" style={styles.button}>
+              <GlassView
+                colorScheme="dark"
+                glassEffectStyle="regular"
+                isInteractive
+                tintColor="#0878d9"
+                style={styles.button}
+              >
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={label}
@@ -135,7 +149,12 @@ export function LockScreen({ authenticating, onUnlock }: Props) {
               accessibilityLabel={label}
               disabled={authenticating}
               onPress={onUnlock}
-              style={({ pressed }) => [styles.button, styles.buttonFallback, pressed && styles.buttonPressed, authenticating && styles.buttonBusy]}
+              style={({ pressed }) => [
+                styles.button,
+                styles.buttonFallback,
+                pressed && styles.buttonPressed,
+                authenticating && styles.buttonBusy,
+              ]}
             >
               <Text style={styles.buttonText}>{authenticating ? "Unlocking…" : label}</Text>
             </Pressable>

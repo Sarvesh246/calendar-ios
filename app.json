@@ -20,16 +20,10 @@
         "NSCalendarsFullAccessUsageDescription": "Datebook can keep a copy of your classes and assignments in Apple Calendar.",
         "NSLocationWhenInUseUsageDescription": "Datebook uses your location for arrive-here reminders.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Datebook uses your location so arrive-here reminders can fire when Datebook is closed.",
-        "UIBackgroundModes": [
-          "fetch",
-          "processing",
-          "location"
-        ]
+        "UIBackgroundModes": ["fetch", "processing", "location"]
       },
       "entitlements": {
-        "com.apple.security.application-groups": [
-          "group.com.sarveshjagtap.datebook"
-        ]
+        "com.apple.security.application-groups": ["group.com.sarveshjagtap.datebook"]
       }
     },
     "android": {

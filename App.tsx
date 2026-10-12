@@ -83,7 +83,8 @@ function openUrlToApp(url: string) {
       if (intent && intent !== "open") q.set("intent", intent === "inbox" ? "inbox" : intent);
       if (item) q.set("item", item);
       if (prefill) q.set("prefill", prefill);
-      const path = intent === "inbox" || parsed.pathname.includes("settings") ? "/settings" : "/today";
+      const path =
+        intent === "inbox" || parsed.pathname.includes("settings") ? "/settings" : "/today";
       return `${APP_ORIGIN}${path}${q.toString() ? `?${q}` : ""}`;
     }
   } catch {
@@ -151,13 +152,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (
-      lockReady &&
-      locked &&
-      !authenticating &&
-      !authAttemptedForLock.current &&
-      appIsActive
-    ) {
+    if (lockReady && locked && !authenticating && !authAttemptedForLock.current && appIsActive) {
       authAttemptedForLock.current = true;
       void tryUnlock();
     }
@@ -223,7 +218,7 @@ export default function App() {
       if (pingTimer.current) clearTimeout(pingTimer.current);
       pingTimer.current = setTimeout(recoverWebView, 2500);
       webviewRef.current?.injectJavaScript(
-        "window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({type:'ping'})); true;"
+        "window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({type:'ping'})); true;",
       );
     });
     return () => {
@@ -333,8 +328,10 @@ export default function App() {
 
       if (message.type === "haptic") {
         const kind = message.payload?.kind;
-        if (kind === "success") void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        else if (kind === "warn") void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        if (kind === "success")
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        else if (kind === "warn")
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         else if (kind === "selection") void Haptics.selectionAsync();
         else void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         return;
@@ -437,7 +434,9 @@ export default function App() {
       }
 
       if (message.type === "openNativeSettings") {
-        void Linking.openSettings().catch((error) => console.error("Could not open iOS Settings", error));
+        void Linking.openSettings().catch((error) =>
+          console.error("Could not open iOS Settings", error),
+        );
         return;
       }
 
@@ -464,7 +463,9 @@ export default function App() {
         void (async () => {
           const perm = await Location.requestForegroundPermissionsAsync();
           if (perm.status !== "granted") return;
-          const here = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          const here = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
           let name = typeof message.payload?.name === "string" ? message.payload.name : "";
           try {
             const geo = await Location.reverseGeocodeAsync({
@@ -491,7 +492,7 @@ export default function App() {
         });
       }
     },
-    [publishLiveStatus, pushBridge]
+    [publishLiveStatus, pushBridge],
   );
 
   const runOAuthInSystemBrowser = useCallback(async (authUrl: string) => {
@@ -521,7 +522,7 @@ export default function App() {
       void Linking.openURL(url);
       return false;
     },
-    [runOAuthInSystemBrowser]
+    [runOAuthInSystemBrowser],
   );
 
   const onNavigationStateChange = useCallback((navState: WebViewNavigation) => {

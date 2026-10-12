@@ -1,6 +1,10 @@
 import { GlassView, isGlassEffectAPIAvailable } from "expo-glass-effect";
 import { SymbolView, type SFSymbol } from "expo-symbols";
-import { requireDatebookGlassButtonView, requireDatebookModelPickerView, requireDatebookTabBarView } from "./modules/datebook-native";
+import {
+  requireDatebookGlassButtonView,
+  requireDatebookModelPickerView,
+  requireDatebookTabBarView,
+} from "./modules/datebook-native";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AccessibilityInfo,
@@ -70,7 +74,9 @@ type ChromeAction =
   | { type: "navigate"; url: string }
   | { type: "compose" }
   | { type: "selectAssistantModel"; modelId: string }
-  | { type: "ask" | "search" | "filters" | "exitFocus" | "pauseFocus" | "resumeFocus" | "endFocus" };
+  | {
+      type: "ask" | "search" | "filters" | "exitFocus" | "pauseFocus" | "resumeFocus" | "endFocus";
+    };
 
 type Props = {
   state: NativeChromeState;
@@ -143,7 +149,13 @@ function chromeNeutral(state: NativeChromeState) {
 
 function alpha(hex: string, opacity: number) {
   const raw = hex.trim().replace("#", "");
-  const expanded = raw.length === 3 ? raw.split("").map((part) => part + part).join("") : raw;
+  const expanded =
+    raw.length === 3
+      ? raw
+          .split("")
+          .map((part) => part + part)
+          .join("")
+      : raw;
   if (!/^[0-9a-f]{6}$/i.test(expanded)) return `rgba(44, 44, 46, ${opacity})`;
   const value = Number.parseInt(expanded, 16);
   return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${opacity})`;
@@ -194,7 +206,10 @@ function GlassSurface({
         !flat && styles.fallbackSurface,
         {
           backgroundColor: fill,
-          borderColor: fill === "transparent" ? "transparent" : alpha(state.colors.ink, state.appearance === "dark" ? 0.16 : 0.1),
+          borderColor:
+            fill === "transparent"
+              ? "transparent"
+              : alpha(state.colors.ink, state.appearance === "dark" ? 0.16 : 0.1),
         },
       ]}
     >
@@ -339,7 +354,10 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
   useEffect(() => {
     void AccessibilityInfo.isReduceTransparencyEnabled().then(setReduceTransparency);
     void AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
-    const transparencySub = AccessibilityInfo.addEventListener("reduceTransparencyChanged", setReduceTransparency);
+    const transparencySub = AccessibilityInfo.addEventListener(
+      "reduceTransparencyChanged",
+      setReduceTransparency,
+    );
     const motionSub = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduceMotion);
     return () => {
       transparencySub.remove();
@@ -383,11 +401,14 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
   // custom pill used to send. Setting `selectedIndex` from a route change
   // (below, via the `routeIndex` prop) never re-enters here: iOS only calls
   // a tab bar's delegate for a user-driven selection, not a programmatic one.
-  const navigateToTab = useCallback((index: number) => {
-    const tab = TABS[index];
-    if (!tab) return;
-    if (state.pathname !== tab.url) onAction({ type: "navigate", url: tab.url });
-  }, [onAction, state.pathname]);
+  const navigateToTab = useCallback(
+    (index: number) => {
+      const tab = TABS[index];
+      if (!tab) return;
+      if (state.pathname !== tab.url) onAction({ type: "navigate", url: tab.url });
+    },
+    [onAction, state.pathname],
+  );
 
   if (!state.ready) return null;
 
@@ -402,7 +423,9 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
           options={state.assistantModels}
           selectedId={state.assistantModelId || "auto"}
           interfaceStyle={state.appearance}
-          onSelect={(event) => onAction({ type: "selectAssistantModel", modelId: event.nativeEvent.id })}
+          onSelect={(event) =>
+            onAction({ type: "selectAssistantModel", modelId: event.nativeEvent.id })
+          }
         />
       </View>
     );
@@ -413,14 +436,43 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
   if (state.focusMode) {
     return (
       <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-        <GlassSurface state={state} reduceTransparency={reduceTransparency} glassStyle="clear" style={[styles.focusExit, { top: insets.top + 10 }]}>
-          <ChromeButton label="Exit Focus" symbol="xmark" state={state} reduceMotion={reduceMotion} onPress={() => onAction({ type: "exitFocus" })} />
+        <GlassSurface
+          state={state}
+          reduceTransparency={reduceTransparency}
+          glassStyle="clear"
+          style={[styles.focusExit, { top: insets.top + 10 }]}
+        >
+          <ChromeButton
+            label="Exit Focus"
+            symbol="xmark"
+            state={state}
+            reduceMotion={reduceMotion}
+            onPress={() => onAction({ type: "exitFocus" })}
+          />
         </GlassSurface>
         {!keyboardVisible && (
-          <GlassSurface state={state} reduceTransparency={reduceTransparency} style={[styles.focusActions, { bottom: insets.bottom + 9 }]}>
-            <ChromeButton label={focusRunning ? "Pause" : "Resume"} symbol={focusRunning ? "pause.fill" : "play.fill"} state={state} reduceMotion={reduceMotion} large onPress={() => onAction({ type: focusRunning ? "pauseFocus" : "resumeFocus" })} />
+          <GlassSurface
+            state={state}
+            reduceTransparency={reduceTransparency}
+            style={[styles.focusActions, { bottom: insets.bottom + 9 }]}
+          >
+            <ChromeButton
+              label={focusRunning ? "Pause" : "Resume"}
+              symbol={focusRunning ? "pause.fill" : "play.fill"}
+              state={state}
+              reduceMotion={reduceMotion}
+              large
+              onPress={() => onAction({ type: focusRunning ? "pauseFocus" : "resumeFocus" })}
+            />
             <View style={[styles.divider, { backgroundColor: alpha(state.colors.ink, 0.12) }]} />
-            <ChromeButton label="End Focus" symbol="stop.fill" state={state} reduceMotion={reduceMotion} large onPress={() => onAction({ type: "endFocus" })} />
+            <ChromeButton
+              label="End Focus"
+              symbol="stop.fill"
+              state={state}
+              reduceMotion={reduceMotion}
+              large
+              onPress={() => onAction({ type: "endFocus" })}
+            />
           </GlassSurface>
         )}
       </View>
@@ -429,7 +481,13 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
 
   return (
     <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-      <GlassSurface state={state} reduceTransparency={reduceTransparency} glassStyle="regular" tintColor={state.colors.surface} style={[styles.headerCluster, { top: insets.top + 9 }]}>
+      <GlassSurface
+        state={state}
+        reduceTransparency={reduceTransparency}
+        glassStyle="regular"
+        tintColor={state.colors.surface}
+        style={[styles.headerCluster, { top: insets.top + 9 }]}
+      >
         <Animated.View
           pointerEvents={state.inRoom ? "none" : "auto"}
           style={{
@@ -439,12 +497,46 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
             borderRadius: ASK_SLOT / 2,
           }}
         >
-          <ChromeButton label="Ask" symbol="sparkles" state={state} reduceMotion={reduceMotion} accent onPress={() => onAction({ type: "ask" })} />
+          <ChromeButton
+            label="Ask"
+            symbol="sparkles"
+            state={state}
+            reduceMotion={reduceMotion}
+            accent
+            onPress={() => onAction({ type: "ask" })}
+          />
         </Animated.View>
-        <ChromeButton label="Search" symbol="magnifyingglass" state={state} reduceMotion={reduceMotion} onPress={() => onAction({ type: "search" })} />
-        <ChromeButton label="Filters" symbol="line.3.horizontal.decrease" state={state} reduceMotion={reduceMotion} badge={state.filtersActive} onPress={() => onAction({ type: "filters" })} />
-        <ChromeButton label="Schedule" symbol="calendar.badge.clock" state={state} reduceMotion={reduceMotion} active={state.pathname === "/schedule"} onPress={() => onAction({ type: "navigate", url: "/schedule" })} />
-        <ChromeButton label="Settings" symbol="gearshape" state={state} reduceMotion={reduceMotion} active={state.pathname === "/settings"} onPress={() => onAction({ type: "navigate", url: "/settings" })} />
+        <ChromeButton
+          label="Search"
+          symbol="magnifyingglass"
+          state={state}
+          reduceMotion={reduceMotion}
+          onPress={() => onAction({ type: "search" })}
+        />
+        <ChromeButton
+          label="Filters"
+          symbol="line.3.horizontal.decrease"
+          state={state}
+          reduceMotion={reduceMotion}
+          badge={state.filtersActive}
+          onPress={() => onAction({ type: "filters" })}
+        />
+        <ChromeButton
+          label="Schedule"
+          symbol="calendar.badge.clock"
+          state={state}
+          reduceMotion={reduceMotion}
+          active={state.pathname === "/schedule"}
+          onPress={() => onAction({ type: "navigate", url: "/schedule" })}
+        />
+        <ChromeButton
+          label="Settings"
+          symbol="gearshape"
+          state={state}
+          reduceMotion={reduceMotion}
+          active={state.pathname === "/settings"}
+          onPress={() => onAction({ type: "navigate", url: "/settings" })}
+        />
       </GlassSurface>
 
       {!keyboardVisible && (
@@ -483,7 +575,11 @@ export function NativeChrome({ state, focusRunning, onAction }: Props) {
                 <DatebookNativeTabBar
                   accessibilityRole="tablist"
                   style={styles.tabBarNative}
-                  items={TABS.map((tab) => ({ label: tab.label, symbol: tab.symbol, url: tab.url }))}
+                  items={TABS.map((tab) => ({
+                    label: tab.label,
+                    symbol: tab.symbol,
+                    url: tab.url,
+                  }))}
                   selectedIndex={routeIndex}
                   tintColor={state.colors.accent}
                   interfaceStyle={state.appearance}
